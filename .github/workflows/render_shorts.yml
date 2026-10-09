@@ -5,6 +5,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+env:
+  COQUI_TOS_AGREED: "1"
+
 jobs:
   preflight:
     name: Pre-flight CSV & Schema Validation
@@ -37,16 +40,16 @@ jobs:
       matrix:
         worker: [0, 1, 2, 3]
       fail-fast: false
-    env:
-      COQUI_TOS_AGREED: "1"
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Install System Dependencies
         run: |
+          echo "::group::Installing Ubuntu Package Dependencies"
           sudo apt-get update
           sudo apt-get install -y ffmpeg texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-plain-generic dvisvgm libpango1.0-dev pkg-config libcairo2-dev
+          echo "::endgroup::"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -54,11 +57,13 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install Dependencies
+      - name: Install PyTorch & Neural Audio Libraries
         run: |
+          echo "::group::Installing Python Dependencies"
           python -m pip install --upgrade "pip<24.1"
           pip install torch==2.2.2 torchaudio==2.2.2 --extra-index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+          echo "::endgroup::"
 
       - name: Cache XTTS Model Weights
         uses: actions/cache@v4
