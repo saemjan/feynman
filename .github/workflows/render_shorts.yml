@@ -80,8 +80,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download All Parallel Artifacts
-        uses: actions/upload-artifact/merge@v4
+        uses: actions/download-artifact@v4
+        with:
+          pattern: physics-shorts-worker-*
+          merge-multiple: true
+          path: dist
+
+      - name: Upload Complete Bundle
+        uses: actions/upload-artifact@v4
         with:
           name: physics-shorts-complete-bundle
-          pattern: physics-shorts-worker-*
-          delete-merged: true
+          path: dist/*.mp4
+          retention-days: 7
