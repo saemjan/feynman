@@ -10,16 +10,18 @@ from scipy.io import wavfile
 from scipy.signal import resample_poly
 
 
-def generate_ambient_pad(duration_sec: float, sample_rate: int = 44100) -> np.ndarray:
-    """Generates a soft, low-pass ambient background pad (A1 note - 55Hz) to elevate narration tone."""
-    t = np.linspace(0, duration_sec, int(sample_rate * duration_sec), endpoint=False)
-    # Fundamental low drone with subtle harmonic
+def generate_ambient_pad(num_samples: int, sample_rate: int = 44100) -> np.ndarray:
+    """Generates a soft low-pass ambient background pad matching exact narration sample count."""
+    duration_sec = num_samples / sample_rate
+    t = np.linspace(0, duration_sec, num_samples, endpoint=False)
+    
+    # Fundamental low drone (A1 note - 55Hz) with subtle harmonic
     drone = 0.02 * np.sin(2 * np.pi * 55 * t) + 0.008 * np.sin(2 * np.pi * 110 * t)
     
     # Apply soft attack and release envelope (0.5s fade)
-    fade_len = int(sample_rate * 0.5)
+    fade_len = min(int(sample_rate * 0.5), num_samples // 2)
     envelope = np.ones_like(t)
-    if len(t) > 2 * fade_len:
+    if fade_len > 0:
         envelope[:fade_len] = np.linspace(0, 1, fade_len)
         envelope[-fade_len:] = np.linspace(1, 0, fade_len)
         
@@ -50,8 +52,8 @@ def process_and_normalize_wav(input_wav: str, output_wav: str, target_sr: int = 
         narr_data = resample_poly(narr_data, up, down).astype(np.float32)
         sr = target_sr
 
-    duration_sec = len(narr_data) / sr
-    pad_data = generate_ambient_pad(duration_sec, sample_rate=sr)
+    # Generate pad matching exact sample length of narr_data
+    pad_data = generate_ambient_pad(len(narr_data), sample_rate=sr)
 
     # Blend narration and ambient drone
     mixed_data = narr_data + pad_data
