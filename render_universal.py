@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Master 3Blue1Brown-style 9:16 Vertical Rendering Engine using Manim.
-Renders physics scenes, LaTeX math, and title cards inside vertical canvas safe zones.
+Universal Physics Compiler supporting Mechanics, Circuits, Optics, EM, Waves, and Quantum.
 """
 
 import argparse
@@ -9,6 +9,7 @@ import json
 import os
 import re
 import sys
+import numpy as np
 from manim import *
 
 # 9:16 Vertical Canvas Configuration
@@ -22,10 +23,11 @@ config.background_color = "#0B0C10"
 # 3Blue1Brown Color Palette
 COLOR_MAP = {
     "FIELD": "#3498DB",      # Electric/Magnetic fields
-    "POSITIVE": "#FF4B4B",   # Positive charges / High energy
+    "POSITIVE": "#FF4B4B",   # Positive charges / High energy / Forces
     "NEGATIVE": "#00D2FF",   # Negative charges / Velocity vectors
-    "ACCENT": "#F1C40F",     # Highlights / Geometry guides
+    "ACCENT": "#F1C40F",     # Highlights / Geometry guides / Optics
     "SUCCESS": "#2ECC71",    # Force vectors / Correct answers
+    "PURPLE": "#9B59B6",     # Photons / Wavefunctions
     "WHITE": "#FFFFFF"
 }
 
@@ -72,7 +74,7 @@ class UniversalPhysicsScene(Scene):
         header_group.arrange(DOWN, buff=0.15).move_to([0, 6.6, 0])
         self.add(header_group)
 
-        # --- ZONE 2: Question (For PYQ Mode, Y: 4.2 to 5.6) ---
+        # --- ZONE 2: Question Paragraph (Y: 4.2 to 5.6) ---
         if question_text:
             q_mob = Paragraph(*[question_text[i:i+40] for i in range(0, len(question_text), 40)],
                               font_size=20, line_spacing=0.2, color=WHITE)
@@ -89,7 +91,7 @@ class UniversalPhysicsScene(Scene):
         if len(visual_mobjects) > 0:
             visual_mobjects.move_to([0, 0.8, 0])
 
-        # --- ZONE 4: Equations / Options Card with 3b1b Background (Y: -7.0 to -2.5) ---
+        # --- ZONE 4: Floating Card Layout (Y: -7.0 to -2.5) ---
         card_contents = VGroup()
         if equations:
             eq_vgroup = VGroup()
@@ -142,10 +144,11 @@ class UniversalPhysicsScene(Scene):
         self.wait(remaining)
 
     def build_visual_primitive(self, item: dict) -> Mobject:
-        """Translates declarative JSON primitives into 3b1b Manim mobjects."""
+        """Universal Compiler for Physics Primitives across Mechanics, Optics, Circuits, EM, and Quantum."""
         itype = item.get("type", "").lower()
         color_hex = item.get("color", COLOR_MAP.get(item.get("semantic", "").upper(), COLOR_MAP["FIELD"]))
 
+        # 1. VECTOR FIELDS (2D Directional Grid)
         if itype == "field":
             direction = item.get("direction", "RIGHT")
             vector_field = VGroup()
@@ -158,19 +161,39 @@ class UniversalPhysicsScene(Scene):
                     vector_field.add(arrow)
             return vector_field
 
+        # 2. 3D OUT-OF-PAGE / INTO-PAGE FIELD SYMBOLS (e.g., Magnetic Field B)
+        elif itype == "field_symbols":
+            mode = item.get("mode", "OUT_OF_PAGE")  # "OUT_OF_PAGE" (Dot) or "INTO_PAGE" (Cross)
+            grid = VGroup()
+            for x in np.linspace(-2.5, 2.5, 5):
+                for y in np.linspace(-1.2, 1.2, 4):
+                    if mode == "OUT_OF_PAGE":
+                        c = Circle(radius=0.12, color=color_hex, stroke_width=2)
+                        d = Dot(point=[x, y, 0], radius=0.04, color=color_hex)
+                        grid.add(VGroup(c, d))
+                    else:  # INTO_PAGE
+                        c = Circle(radius=0.12, color=color_hex, stroke_width=2)
+                        l1 = Line([x-0.07, y-0.07, 0], [x+0.07, y+0.07, 0], color=color_hex, stroke_width=2)
+                        l2 = Line([x-0.07, y+0.07, 0], [x+0.07, y-0.07, 0], color=color_hex, stroke_width=2)
+                        grid.add(VGroup(c, l1, l2))
+            if "label" in item:
+                lbl = MathTex(item["label"], font_size=24, color=color_hex).to_corner(UR, buff=0.5)
+                grid.add(lbl)
+            return grid
+
+        # 3. CHARGES & POINT MASSES
         elif itype == "charge":
             pos = to_3d_point(item.get("pos", [0, 0, 0]))
             radius = item.get("radius", 0.25)
             dot = Dot(point=pos, radius=radius, color=color_hex)
-            # 3b1b Radial Glow Effect
-            halo = Circle(radius=radius * 1.8, color=color_hex, fill_opacity=0.25, stroke_width=0)
-            halo.move_to(pos)
+            halo = Circle(radius=radius * 1.8, color=color_hex, fill_opacity=0.25, stroke_width=0).move_to(pos)
             charge_grp = VGroup(halo, dot)
             if "label" in item:
                 lbl = MathTex(item["label"], font_size=22, color=WHITE).next_to(dot, UP, buff=0.15)
                 charge_grp.add(lbl)
             return charge_grp
 
+        # 4. ARROWS & VECTORS
         elif itype == "vector":
             start = to_3d_point(item.get("start", [0, 0, 0]))
             end = to_3d_point(item.get("end", [1, 0, 0]))
@@ -180,6 +203,7 @@ class UniversalPhysicsScene(Scene):
                 return VGroup(arrow, lbl)
             return arrow
 
+        # 5. LINES & GUIDES
         elif itype == "line":
             start = to_3d_point(item.get("start", [-1, 0, 0]))
             end = to_3d_point(item.get("end", [1, 0, 0]))
@@ -187,6 +211,7 @@ class UniversalPhysicsScene(Scene):
                 return DashedLine(start=start, end=end, color=color_hex)
             return Line(start=start, end=end, color=color_hex, stroke_width=3)
 
+        # 6. ANGLE ARCS
         elif itype == "arc":
             center = to_3d_point(item.get("center", [0, 0, 0]))
             arc = Arc(radius=item.get("radius", 0.8), start_angle=np.radians(item.get("start_angle", 0)),
@@ -196,6 +221,123 @@ class UniversalPhysicsScene(Scene):
                 return VGroup(arc, lbl)
             return arc
 
+        # 7. MECHANICS: COILED SPRINGS
+        elif itype == "spring":
+            start = np.array(to_3d_point(item.get("start", [-2, 0, 0])))
+            end = np.array(to_3d_point(item.get("end", [0, 0, 0])))
+            coils = item.get("coils", 8)
+            length = np.linalg.norm(end - start)
+            unit_v = (end - start) / length
+            perp_v = np.array([-unit_v[1], unit_v[0], 0])
+            
+            pts = [start]
+            for i in range(1, coils * 2):
+                fraction = i / (coils * 2)
+                side = 0.25 if i % 2 == 1 else -0.25
+                pt = start + fraction * (end - start) + side * perp_v
+                pts.append(pt)
+            pts.append(end)
+            
+            spring_line = VMobject(color=color_hex, stroke_width=3)
+            spring_line.set_points_as_corners(pts)
+            return spring_line
+
+        # 8. MECHANICS: PULLEYS & MASS BLOCKS
+        elif itype == "pulley_system":
+            center = to_3d_point(item.get("center", [0, 1.0, 0]))
+            pulley = Circle(radius=0.5, color=color_hex, stroke_width=3).move_to(center)
+            axle = Dot(point=center, radius=0.08, color=WHITE)
+            # Ropes and Masses
+            rope_left = Line(center + LEFT*0.5, center + LEFT*0.5 + DOWN*1.8, color=WHITE, stroke_width=2)
+            rope_right = Line(center + RIGHT*0.5, center + RIGHT*0.5 + DOWN*1.2, color=WHITE, stroke_width=2)
+            block1 = Square(side_length=0.6, color=COLOR_MAP["POSITIVE"], fill_opacity=0.3).move_to(center + LEFT*0.5 + DOWN*2.1)
+            block2 = Square(side_length=0.8, color=COLOR_MAP["NEGATIVE"], fill_opacity=0.3).move_to(center + RIGHT*0.5 + DOWN*1.6)
+            lbl1 = MathTex("m_1", font_size=20, color=WHITE).move_to(block1)
+            lbl2 = MathTex("m_2", font_size=20, color=WHITE).move_to(block2)
+            return VGroup(pulley, axle, rope_left, rope_right, block1, block2, lbl1, lbl2)
+
+        # 9. OPTICS: LENSES & MIRRORS
+        elif itype == "lens_mirror":
+            kind = item.get("kind", "convex_lens")  # "convex_lens", "concave_lens", "mirror"
+            pos = to_3d_point(item.get("pos", [0, 0, 0]))
+            if kind == "convex_lens":
+                lens = Ellipse(width=0.4, height=2.2, color=color_hex, fill_color=color_hex, fill_opacity=0.3, stroke_width=2)
+                lens.move_to(pos)
+                axis = DashedLine(pos + LEFT*2.5, pos + RIGHT*2.5, color=GRAY, stroke_width=1.5)
+                return VGroup(axis, lens)
+            elif kind == "mirror":
+                mirror = Line(pos + UP*1.2, pos + DOWN*1.2, color=color_hex, stroke_width=4)
+                hatch = VGroup(*[Line(pos + UP*y, pos + UP*y + RIGHT*0.15 + DOWN*0.1, color=GRAY, stroke_width=1.5)
+                                 for y in np.linspace(-1.2, 1.2, 10)])
+                axis = DashedLine(pos + LEFT*2.5, pos + RIGHT*0.5, color=GRAY, stroke_width=1.5)
+                return VGroup(axis, mirror, hatch)
+
+        # 10. OPTICS: LIGHT RAYS
+        elif itype == "optics_ray":
+            start = to_3d_point(item.get("start", [-2, 0, 0]))
+            end = to_3d_point(item.get("end", [2, 0, 0]))
+            ray = Arrow(start=start, end=end, buff=0, color=color_hex, max_tip_length_to_length_ratio=0.15, stroke_width=3)
+            return ray
+
+        # 11. CIRCUITS: RESISTORS, CAPACITORS, BATTERIES
+        elif itype == "circuit_component":
+            kind = item.get("kind", "resistor")  # "resistor", "capacitor", "battery"
+            start = np.array(to_3d_point(item.get("start", [-1.5, 0, 0])))
+            end = np.array(to_3d_point(item.get("end", [1.5, 0, 0])))
+            mid = (start + end) / 2.0
+            
+            if kind == "resistor":
+                wire1 = Line(start, mid + LEFT*0.6, color=WHITE, stroke_width=2.5)
+                wire2 = Line(mid + RIGHT*0.6, end, color=WHITE, stroke_width=2.5)
+                # Zigzag path
+                zz_pts = [mid + LEFT*0.6]
+                for i in range(5):
+                    dx = -0.45 + i * 0.225
+                    dy = 0.25 if i % 2 == 0 else -0.25
+                    zz_pts.append(mid + np.array([dx, dy, 0]))
+                zz_pts.append(mid + RIGHT*0.6)
+                res = VMobject(color=color_hex, stroke_width=3).set_points_as_corners(zz_pts)
+                lbl = MathTex(item.get("label", "R"), font_size=22, color=color_hex).next_to(res, UP, buff=0.15)
+                return VGroup(wire1, wire2, res, lbl)
+
+            elif kind == "capacitor":
+                wire1 = Line(start, mid + LEFT*0.2, color=WHITE, stroke_width=2.5)
+                wire2 = Line(mid + RIGHT*0.2, end, color=WHITE, stroke_width=2.5)
+                plate1 = Line(mid + LEFT*0.2 + UP*0.6, mid + LEFT*0.2 + DOWN*0.6, color=color_hex, stroke_width=3.5)
+                plate2 = Line(mid + RIGHT*0.2 + UP*0.6, mid + RIGHT*0.2 + DOWN*0.6, color=color_hex, stroke_width=3.5)
+                lbl = MathTex(item.get("label", "C"), font_size=22, color=color_hex).next_to(plate1, UP, buff=0.15)
+                return VGroup(wire1, wire2, plate1, plate2, lbl)
+
+        # 12. QUANTUM: PHOTONS & ENERGY LEVELS
+        elif itype == "photon":
+            start = np.array(to_3d_point(item.get("start", [-2, 1, 0])))
+            end = np.array(to_3d_point(item.get("end", [0, 0, 0])))
+            length = np.linalg.norm(end - start)
+            unit_v = (end - start) / length
+            perp_v = np.array([-unit_v[1], unit_v[0], 0])
+            
+            # Wavy photon path
+            t_vals = np.linspace(0, length, 50)
+            pts = [start + t * unit_v + 0.15 * np.sin(4 * np.pi * t / length) * perp_v for t in t_vals]
+            wave = VMobject(color=COLOR_MAP["PURPLE"], stroke_width=3).set_points_as_corners(pts)
+            head = Arrow(start=pts[-5], end=end, buff=0, color=COLOR_MAP["PURPLE"], max_tip_length_to_length_ratio=0.3)
+            lbl = MathTex("h\\nu", font_size=20, color=COLOR_MAP["PURPLE"]).next_to(wave, UP, buff=0.1)
+            return VGroup(wave, head, lbl)
+
+        elif itype == "energy_level":
+            y_levels = item.get("levels", [0, 1.0, 1.8])
+            grp = VGroup()
+            for idx, y in enumerate(y_levels):
+                line = Line([-2, y - 0.8, 0], [2, y - 0.8, 0], color=WHITE, stroke_width=2)
+                lbl = MathTex(f"n={idx+1}", font_size=20, color=GRAY).next_to(line, LEFT, buff=0.15)
+                grp.add(line, lbl)
+            # Optional transition arrow
+            if item.get("transition", False):
+                t_arrow = Arrow([0, y_levels[2]-0.8, 0], [0, y_levels[0]-0.8, 0], buff=0.05, color=COLOR_MAP["ACCENT"], stroke_width=3)
+                grp.add(t_arrow)
+            return grp
+
+        # 13. MATHEMATICAL FUNCTION GRAPHS
         elif itype == "graph":
             try:
                 axes = Axes(x_range=item.get("x_range", [0, 5]), y_range=item.get("y_range", [-2, 2]),
@@ -207,6 +349,7 @@ class UniversalPhysicsScene(Scene):
                 print(f"[WARN] Failed to compile graph expression: {e}", file=sys.stderr)
                 return None
 
+        # 14. GENERIC SHAPES (Rectangles, Ellipses)
         elif itype == "shape":
             kind = item.get("kind", "rectangle")
             pos = to_3d_point(item.get("pos", [0, 0, 0]))
@@ -224,7 +367,7 @@ class UniversalPhysicsScene(Scene):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Manim Universal Render Engine")
+    parser = argparse.ArgumentParser(description="Manim Universal Physics Render Engine")
     parser.add_argument("--video_id", required=True)
     parser.add_argument("--header_title", default="")
     parser.add_argument("--tagline", default="")
