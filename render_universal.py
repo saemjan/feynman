@@ -41,10 +41,10 @@ def safe_json_loads(val_str: str):
 
 
 def to_3d_point(pos):
-    """Ensures coordinates are formatted as a 3D float list [x, y, z]."""
+    """Ensures coordinates are formatted as a 3D float NumPy array [x, y, z]."""
     if len(pos) == 2:
-        return [float(pos[0]), float(pos[1]), 0.0]
-    return [float(pos[0]), float(pos[1]), float(pos[2])]
+        return np.array([float(pos[0]), float(pos[1]), 0.0])
+    return np.array([float(pos[0]), float(pos[1]), float(pos[2])])
 
 
 class UniversalPhysicsScene(Scene):
@@ -216,8 +216,8 @@ class UniversalPhysicsScene(Scene):
             return arc
 
         elif itype == "spring":
-            start = np.array(to_3d_point(item.get("start", [-2, 0, 0])))
-            end = np.array(to_3d_point(item.get("end", [0, 0, 0])))
+            start = to_3d_point(item.get("start", [-2, 0, 0]))
+            end = to_3d_point(item.get("end", [0, 0, 0]))
             coils = item.get("coils", 8)
             length = np.linalg.norm(end - start)
             unit_v = (end - start) / length
@@ -270,8 +270,8 @@ class UniversalPhysicsScene(Scene):
 
         elif itype == "circuit_component":
             kind = item.get("kind", "resistor")
-            start = np.array(to_3d_point(item.get("start", [-1.5, 0, 0])))
-            end = np.array(to_3d_point(item.get("end", [1.5, 0, 0])))
+            start = to_3d_point(item.get("start", [-1.5, 0, 0]))
+            end = to_3d_point(item.get("end", [1.5, 0, 0]))
             mid = (start + end) / 2.0
             
             if kind == "resistor":
@@ -296,8 +296,8 @@ class UniversalPhysicsScene(Scene):
                 return VGroup(wire1, wire2, plate1, plate2, lbl)
 
         elif itype == "photon":
-            start = np.array(to_3d_point(item.get("start", [-2, 1, 0])))
-            end = np.array(to_3d_point(item.get("end", [0, 0, 0])))
+            start = to_3d_point(item.get("start", [-2, 1, 0]))
+            end = to_3d_point(item.get("end", [0, 0, 0]))
             length = np.linalg.norm(end - start)
             unit_v = (end - start) / length
             perp_v = np.array([-unit_v[1], unit_v[0], 0])
