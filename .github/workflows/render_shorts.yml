@@ -37,6 +37,8 @@ jobs:
       matrix:
         worker: [0, 1, 2, 3]
       fail-fast: false
+    env:
+      COQUI_TOS_AGREED: "1"
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -44,7 +46,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg texlive-latex-recommended texlive-plain-generic dvisvgm libpango1.0-dev pkg-config libcairo2-dev
+          sudo apt-get install -y ffmpeg texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-plain-generic dvisvgm libpango1.0-dev pkg-config libcairo2-dev
 
       - name: Set up Python
         uses: actions/setup-python@v5
