@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Neural Voice Synthesis Engine with Coqui XTTS-v2 and Edge-TTS Fallback.
-Synthesizes narration, handles format conversions, and blends ambient soundscapes.
+Neural Voice Synthesis Engine with High-Fidelity Coqui XTTS-v2 Voice Cloning.
+Uses saem_voice_sample.wav for zero-shot speaker matching and Edge-TTS as fallback.
 """
 
 import argparse
@@ -18,19 +18,28 @@ def get_deterministic_seed(video_id: str) -> int:
 
 
 def synthesize_coqui(text: str, speaker_wav: str, output_wav: str, seed: int) -> bool:
-    """Attempts voice cloning using Coqui XTTS-v2."""
+    """Attempts high-fidelity voice cloning using Coqui XTTS-v2."""
     try:
         import torch
         from TTS.api import TTS
 
         torch.manual_seed(seed)
         device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        print(f"[INFO] Initializing XTTS-v2 on {device.upper()} using voice sample: {speaker_wav}")
         tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
+
+        # Tuned parameters for realistic human pacing and pitch matching
         tts.tts_to_file(
             text=text,
             speaker_wav=speaker_wav,
             language="en",
-            file_path=output_wav
+            file_path=output_wav,
+            temperature=0.7,            # Balances natural expressive variance and stability
+            repetition_penalty=5.0,     # Prevents word repetition or phantom stutters
+            top_k=50,                   # Constrains token selection for vocal clarity
+            top_p=0.85,                 # Smooths pitch transitions across long sentences
+            enable_text_splitting=True  # Splices long scripts at natural punctuation pauses
         )
         return True
     except Exception as e:
@@ -86,7 +95,9 @@ def main():
     success = False
     if os.path.exists(args.speaker_wav):
         success = synthesize_coqui(args.script, args.speaker_wav, raw_wav, seed)
-    
+    else:
+        print(f"[WARN] Reference audio '{args.speaker_wav}' not found in repo root.", file=sys.stderr)
+
     if not success:
         print("[INFO] Utilizing Edge-TTS neural engine fallback.", file=sys.stderr)
         success = synthesize_edge_tts(args.script, raw_wav)
