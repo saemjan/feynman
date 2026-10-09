@@ -156,14 +156,19 @@ def main():
     print(f"[INFO] Loaded {len(rows)} video jobs for worker {args.shard_index + 1}/{args.shard_total}.")
 
     success_count = 0
+    failed_count = 0
     for row in rows:
         try:
             if run_pipeline_for_row(row, args.output_dir, dry_run=args.dry_run):
                 success_count += 1
         except Exception as e:
+            failed_count += 1
             print(f"[ERROR] Job failed for {row.get('video_id')}: {e}", file=sys.stderr)
 
-    print(f"\n[FINISHED] Successfully processed {success_count}/{len(rows)} videos.")
+    print(f"\n[FINISHED] Processed {success_count}/{len(rows)} videos successfully.")
+    if failed_count > 0:
+        print(f"[FATAL] {failed_count} job(s) failed during execution.", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
