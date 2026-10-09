@@ -148,7 +148,6 @@ class UniversalPhysicsScene(Scene):
         itype = item.get("type", "").lower()
         color_hex = item.get("color", COLOR_MAP.get(item.get("semantic", "").upper(), COLOR_MAP["FIELD"]))
 
-        # 1. VECTOR FIELDS (2D Directional Grid)
         if itype == "field":
             direction = item.get("direction", "RIGHT")
             vector_field = VGroup()
@@ -161,9 +160,8 @@ class UniversalPhysicsScene(Scene):
                     vector_field.add(arrow)
             return vector_field
 
-        # 2. 3D OUT-OF-PAGE / INTO-PAGE FIELD SYMBOLS (e.g., Magnetic Field B)
         elif itype == "field_symbols":
-            mode = item.get("mode", "OUT_OF_PAGE")  # "OUT_OF_PAGE" (Dot) or "INTO_PAGE" (Cross)
+            mode = item.get("mode", "OUT_OF_PAGE")
             grid = VGroup()
             for x in np.linspace(-2.5, 2.5, 5):
                 for y in np.linspace(-1.2, 1.2, 4):
@@ -171,7 +169,7 @@ class UniversalPhysicsScene(Scene):
                         c = Circle(radius=0.12, color=color_hex, stroke_width=2)
                         d = Dot(point=[x, y, 0], radius=0.04, color=color_hex)
                         grid.add(VGroup(c, d))
-                    else:  # INTO_PAGE
+                    else:
                         c = Circle(radius=0.12, color=color_hex, stroke_width=2)
                         l1 = Line([x-0.07, y-0.07, 0], [x+0.07, y+0.07, 0], color=color_hex, stroke_width=2)
                         l2 = Line([x-0.07, y+0.07, 0], [x+0.07, y-0.07, 0], color=color_hex, stroke_width=2)
@@ -181,7 +179,6 @@ class UniversalPhysicsScene(Scene):
                 grid.add(lbl)
             return grid
 
-        # 3. CHARGES & POINT MASSES
         elif itype == "charge":
             pos = to_3d_point(item.get("pos", [0, 0, 0]))
             radius = item.get("radius", 0.25)
@@ -193,7 +190,6 @@ class UniversalPhysicsScene(Scene):
                 charge_grp.add(lbl)
             return charge_grp
 
-        # 4. ARROWS & VECTORS
         elif itype == "vector":
             start = to_3d_point(item.get("start", [0, 0, 0]))
             end = to_3d_point(item.get("end", [1, 0, 0]))
@@ -203,7 +199,6 @@ class UniversalPhysicsScene(Scene):
                 return VGroup(arrow, lbl)
             return arrow
 
-        # 5. LINES & GUIDES
         elif itype == "line":
             start = to_3d_point(item.get("start", [-1, 0, 0]))
             end = to_3d_point(item.get("end", [1, 0, 0]))
@@ -211,7 +206,6 @@ class UniversalPhysicsScene(Scene):
                 return DashedLine(start=start, end=end, color=color_hex)
             return Line(start=start, end=end, color=color_hex, stroke_width=3)
 
-        # 6. ANGLE ARCS
         elif itype == "arc":
             center = to_3d_point(item.get("center", [0, 0, 0]))
             arc = Arc(radius=item.get("radius", 0.8), start_angle=np.radians(item.get("start_angle", 0)),
@@ -221,7 +215,6 @@ class UniversalPhysicsScene(Scene):
                 return VGroup(arc, lbl)
             return arc
 
-        # 7. MECHANICS: COILED SPRINGS
         elif itype == "spring":
             start = np.array(to_3d_point(item.get("start", [-2, 0, 0])))
             end = np.array(to_3d_point(item.get("end", [0, 0, 0])))
@@ -242,12 +235,10 @@ class UniversalPhysicsScene(Scene):
             spring_line.set_points_as_corners(pts)
             return spring_line
 
-        # 8. MECHANICS: PULLEYS & MASS BLOCKS
         elif itype == "pulley_system":
             center = to_3d_point(item.get("center", [0, 1.0, 0]))
             pulley = Circle(radius=0.5, color=color_hex, stroke_width=3).move_to(center)
             axle = Dot(point=center, radius=0.08, color=WHITE)
-            # Ropes and Masses
             rope_left = Line(center + LEFT*0.5, center + LEFT*0.5 + DOWN*1.8, color=WHITE, stroke_width=2)
             rope_right = Line(center + RIGHT*0.5, center + RIGHT*0.5 + DOWN*1.2, color=WHITE, stroke_width=2)
             block1 = Square(side_length=0.6, color=COLOR_MAP["POSITIVE"], fill_opacity=0.3).move_to(center + LEFT*0.5 + DOWN*2.1)
@@ -256,9 +247,8 @@ class UniversalPhysicsScene(Scene):
             lbl2 = MathTex("m_2", font_size=20, color=WHITE).move_to(block2)
             return VGroup(pulley, axle, rope_left, rope_right, block1, block2, lbl1, lbl2)
 
-        # 9. OPTICS: LENSES & MIRRORS
         elif itype == "lens_mirror":
-            kind = item.get("kind", "convex_lens")  # "convex_lens", "concave_lens", "mirror"
+            kind = item.get("kind", "convex_lens")
             pos = to_3d_point(item.get("pos", [0, 0, 0]))
             if kind == "convex_lens":
                 lens = Ellipse(width=0.4, height=2.2, color=color_hex, fill_color=color_hex, fill_opacity=0.3, stroke_width=2)
@@ -272,16 +262,14 @@ class UniversalPhysicsScene(Scene):
                 axis = DashedLine(pos + LEFT*2.5, pos + RIGHT*0.5, color=GRAY, stroke_width=1.5)
                 return VGroup(axis, mirror, hatch)
 
-        # 10. OPTICS: LIGHT RAYS
         elif itype == "optics_ray":
             start = to_3d_point(item.get("start", [-2, 0, 0]))
             end = to_3d_point(item.get("end", [2, 0, 0]))
             ray = Arrow(start=start, end=end, buff=0, color=color_hex, max_tip_length_to_length_ratio=0.15, stroke_width=3)
             return ray
 
-        # 11. CIRCUITS: RESISTORS, CAPACITORS, BATTERIES
         elif itype == "circuit_component":
-            kind = item.get("kind", "resistor")  # "resistor", "capacitor", "battery"
+            kind = item.get("kind", "resistor")
             start = np.array(to_3d_point(item.get("start", [-1.5, 0, 0])))
             end = np.array(to_3d_point(item.get("end", [1.5, 0, 0])))
             mid = (start + end) / 2.0
@@ -289,7 +277,6 @@ class UniversalPhysicsScene(Scene):
             if kind == "resistor":
                 wire1 = Line(start, mid + LEFT*0.6, color=WHITE, stroke_width=2.5)
                 wire2 = Line(mid + RIGHT*0.6, end, color=WHITE, stroke_width=2.5)
-                # Zigzag path
                 zz_pts = [mid + LEFT*0.6]
                 for i in range(5):
                     dx = -0.45 + i * 0.225
@@ -308,7 +295,6 @@ class UniversalPhysicsScene(Scene):
                 lbl = MathTex(item.get("label", "C"), font_size=22, color=color_hex).next_to(plate1, UP, buff=0.15)
                 return VGroup(wire1, wire2, plate1, plate2, lbl)
 
-        # 12. QUANTUM: PHOTONS & ENERGY LEVELS
         elif itype == "photon":
             start = np.array(to_3d_point(item.get("start", [-2, 1, 0])))
             end = np.array(to_3d_point(item.get("end", [0, 0, 0])))
@@ -316,7 +302,6 @@ class UniversalPhysicsScene(Scene):
             unit_v = (end - start) / length
             perp_v = np.array([-unit_v[1], unit_v[0], 0])
             
-            # Wavy photon path
             t_vals = np.linspace(0, length, 50)
             pts = [start + t * unit_v + 0.15 * np.sin(4 * np.pi * t / length) * perp_v for t in t_vals]
             wave = VMobject(color=COLOR_MAP["PURPLE"], stroke_width=3).set_points_as_corners(pts)
@@ -331,13 +316,11 @@ class UniversalPhysicsScene(Scene):
                 line = Line([-2, y - 0.8, 0], [2, y - 0.8, 0], color=WHITE, stroke_width=2)
                 lbl = MathTex(f"n={idx+1}", font_size=20, color=GRAY).next_to(line, LEFT, buff=0.15)
                 grp.add(line, lbl)
-            # Optional transition arrow
             if item.get("transition", False):
                 t_arrow = Arrow([0, y_levels[2]-0.8, 0], [0, y_levels[0]-0.8, 0], buff=0.05, color=COLOR_MAP["ACCENT"], stroke_width=3)
                 grp.add(t_arrow)
             return grp
 
-        # 13. MATHEMATICAL FUNCTION GRAPHS
         elif itype == "graph":
             try:
                 axes = Axes(x_range=item.get("x_range", [0, 5]), y_range=item.get("y_range", [-2, 2]),
@@ -349,7 +332,6 @@ class UniversalPhysicsScene(Scene):
                 print(f"[WARN] Failed to compile graph expression: {e}", file=sys.stderr)
                 return None
 
-        # 14. GENERIC SHAPES (Rectangles, Ellipses)
         elif itype == "shape":
             kind = item.get("kind", "rectangle")
             pos = to_3d_point(item.get("pos", [0, 0, 0]))
@@ -382,6 +364,13 @@ def main():
 
     options = safe_json_loads(args.options_json)
 
+    # Force Manim to output the movie file directly to args.output
+    abs_output = os.path.abspath(args.output)
+    os.makedirs(os.path.dirname(abs_output), exist_ok=True)
+    
+    config.write_to_movie = True
+    config.output_file = abs_output
+
     scene_kwargs = {
         "header_title": args.header_title,
         "tagline": args.tagline,
@@ -396,14 +385,18 @@ def main():
     scene = UniversalPhysicsScene(scene_kwargs=scene_kwargs)
     scene.render()
 
-    rendered_file = config.get_dir("video_output_dir") / f"UniversalPhysicsScene.mp4"
-    if os.path.exists(rendered_file):
-        os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-        os.replace(rendered_file, args.output)
-        print(f"[SUCCESS] Rendered video saved to: {args.output}")
+    if os.path.exists(abs_output):
+        print(f"[SUCCESS] Rendered video saved to: {abs_output}")
     else:
-        print(f"[ERROR] Could not locate rendered output at {rendered_file}", file=sys.stderr)
-        sys.exit(1)
+        # Fallback check if Manim appended Scene name
+        default_dir = config.get_dir("video_output_dir")
+        possible_files = list(default_dir.glob("*.mp4")) if default_dir.exists() else []
+        if possible_files:
+            os.replace(possible_files[0], abs_output)
+            print(f"[SUCCESS] Relocated rendered video to: {abs_output}")
+        else:
+            print(f"[ERROR] Could not locate rendered output at {abs_output}", file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
