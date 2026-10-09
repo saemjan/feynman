@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Neural Voice Synthesis Engine with High-Fidelity Coqui XTTS-v2 Voice Cloning.
-Uses saem_voice_sample.wav for zero-shot speaker matching and Edge-TTS as fallback.
+Neural Voice Synthesis Engine with 2-Tier Fallback:
+Tier 1: Coqui XTTS-v2 (Zero-Shot Voice Cloning using saem_voice_sample.wav)
+Tier 2: Google Text-to-Speech (gTTS HTTP API Fallback)
 """
 
 import argparse
@@ -18,9 +19,10 @@ def get_deterministic_seed(video_id: str) -> int:
 
 
 def synthesize_coqui(text: str, speaker_wav: str, output_wav: str, seed: int) -> bool:
-    """Attempts high-fidelity voice cloning using Coqui XTTS-v2."""
+    """Tier 1: High-Fidelity Voice Cloning using Coqui XTTS-v2."""
     try:
         import torch
+        import torchaudio
         from TTS.api import TTS
 
         torch.manual_seed(seed)
@@ -29,38 +31,34 @@ def synthesize_coqui(text: str, speaker_wav: str, output_wav: str, seed: int) ->
         print(f"[INFO] Initializing XTTS-v2 on {device.upper()} using voice sample: {speaker_wav}")
         tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 
-        # Tuned parameters for realistic human pacing and pitch matching
         tts.tts_to_file(
             text=text,
             speaker_wav=speaker_wav,
             language="en",
             file_path=output_wav,
-            temperature=0.7,            # Balances natural expressive variance and stability
-            repetition_penalty=5.0,     # Prevents word repetition or phantom stutters
-            top_k=50,                   # Constrains token selection for vocal clarity
-            top_p=0.85,                 # Smooths pitch transitions across long sentences
-            enable_text_splitting=True  # Splices long scripts at natural punctuation pauses
+            temperature=0.7,
+            repetition_penalty=5.0,
+            top_k=50,
+            top_p=0.85,
+            enable_text_splitting=True
         )
         return True
     except Exception as e:
-        print(f"[WARN] Coqui XTTS-v2 synthesis failed ({e}). Triggering fallback...", file=sys.stderr)
+        print(f"[WARN] Coqui XTTS-v2 synthesis failed ({e}). Triggering gTTS fallback...", file=sys.stderr)
         return False
 
 
-def synthesize_edge_tts(text: str, output_wav: str) -> bool:
-    """Fallback generator using Microsoft Edge TTS, converted cleanly to 16-bit PCM WAV."""
-    temp_mp3 = output_wav + ".temp.mp3"
+def synthesize_gtts(text: str, output_wav: str) -> bool:
+    """Tier 2: Reliable HTTP Fallback using Google Text-to-Speech (gTTS)."""
+    temp_mp3 = output_wav + ".gtts.mp3"
     try:
-        import asyncio
-        import edge_tts
+        from gtts import gTTS
+        
+        print("[INFO] Generating audio via Google TTS API...")
+        tts = gTTS(text=text, lang='en', slow=False)
+        tts.save(temp_mp3)
 
-        async def _run():
-            communicate = edge_tts.Communicate(text, "en-US-ChristopherNeural", rate="+0%")
-            await communicate.save(temp_mp3)
-
-        asyncio.run(_run())
-
-        # Convert MP3 stream to PCM WAV via FFmpeg
+        # Convert MP3 output to 16-bit 44.1kHz PCM WAV
         cmd = [
             "ffmpeg", "-y",
             "-i", temp_mp3,
@@ -75,7 +73,7 @@ def synthesize_edge_tts(text: str, output_wav: str) -> bool:
             os.remove(temp_mp3)
         return True
     except Exception as e:
-        print(f"[ERROR] Edge-TTS synthesis failed: {e}", file=sys.stderr)
+        print(f"[ERROR] gTTS synthesis failed: {e}", file=sys.stderr)
         if os.path.exists(temp_mp3):
             os.remove(temp_mp3)
         return False
@@ -93,14 +91,16 @@ def main():
     raw_wav = args.output + ".raw.wav"
 
     success = False
+    # Try Tier 1: Coqui XTTS-v2 Voice Cloning
     if os.path.exists(args.speaker_wav):
         success = synthesize_coqui(args.script, args.speaker_wav, raw_wav, seed)
     else:
-        print(f"[WARN] Reference audio '{args.speaker_wav}' not found in repo root.", file=sys.stderr)
+        print(f"[WARN] Reference audio '{args.speaker_wav}' not found.", file=sys.stderr)
 
+    # Try Tier 2: Google TTS Fallback
     if not success:
-        print("[INFO] Utilizing Edge-TTS neural engine fallback.", file=sys.stderr)
-        success = synthesize_edge_tts(args.script, raw_wav)
+        print("[INFO] Utilizing gTTS HTTP engine fallback.", file=sys.stderr)
+        success = synthesize_gtts(args.script, raw_wav)
 
     if not success or not os.path.exists(raw_wav):
         print(f"[FATAL] Failed to synthesize audio for {args.video_id}", file=sys.stderr)
