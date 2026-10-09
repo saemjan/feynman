@@ -2,12 +2,19 @@
 """
 Pre-Flight Schema & Boundary Validator.
 Validates RFC 4180 CSV compliance, LaTeX string escaping, JSON structures, script word counts, and spatial bounds.
+Supports all Universal Physics primitives.
 """
 
 import csv
 import json
 import re
 import sys
+
+ALLOWED_PRIMITIVES = {
+    "field", "field_symbols", "charge", "vector", "line", "arc",
+    "spring", "pulley_system", "lens_mirror", "optics_ray",
+    "circuit_component", "photon", "energy_level", "graph", "shape"
+}
 
 
 def safe_json_loads(val_str: str):
@@ -20,12 +27,16 @@ def safe_json_loads(val_str: str):
 
 def validate_spatial_bounds(item: dict, video_id: str):
     """Verifies visual primitives remain within safe 9:16 layout limits (X: [-3.5, 3.5], Y: [-2.2, 1.8])."""
+    ptype = item.get("type", "").lower()
+    if ptype not in ALLOWED_PRIMITIVES:
+        print(f"[WARN] [{video_id}] Unrecognized primitive type '{ptype}'.")
+
     for pos_key in ["pos", "start", "end", "center"]:
         if pos_key in item:
             coords = item[pos_key]
             x, y = coords[0], coords[1]
             if not (-3.5 <= x <= 3.5 and -2.2 <= y <= 1.8):
-                print(f"[WARN] [{video_id}] {item.get('type')} key '{pos_key}' ({x}, {y}) exceeds safe visual bounds!")
+                print(f"[WARN] [{video_id}] Primitive '{ptype}' key '{pos_key}' ({x}, {y}) exceeds safe visual bounds!")
 
 
 def validate_csv(csv_path: str) -> bool:
