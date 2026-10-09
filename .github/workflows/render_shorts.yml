@@ -44,7 +44,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg texlive-latex-recommended texlive-plain-generic dvisvgm
+          sudo apt-get install -y ffmpeg texlive-latex-recommended texlive-plain-generic dvisvgm libpango1.0-dev pkg-config libcairo2-dev
 
       - name: Set up Python
         uses: actions/setup-python@v5
