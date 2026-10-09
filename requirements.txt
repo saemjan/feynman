@@ -1,0 +1,8 @@
+manim==0.18.1
+numpy==1.26.4
+scipy==1.11.4
+torch==2.2.2
+TTS==0.22.0
+edge-tts==6.1.12
+pydub==0.25.1
+setuptools==69.5.1
