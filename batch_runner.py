@@ -113,6 +113,7 @@ def run_pipeline_for_row(row, output_dir, speaker_wav, dry_run=False) -> bool:
     final_output = os.path.join(output_dir, f"{video_id}.mp4")
 
     try:
+        # ---- Step 1: audio ----
         audio_cmd = [
             sys.executable, "generate_audio.py",
             "--video_id",    video_id,
@@ -128,12 +129,14 @@ def run_pipeline_for_row(row, output_dir, speaker_wav, dry_run=False) -> bool:
         duration = get_wav_duration(temp_audio) + 2.0
         _log(f"audio duration = {duration:.2f}s")
 
+        # ---- Step 2: options ----
         options_arr = [
             row[f"option_{ch}"]
             for ch in ("a", "b", "c", "d")
             if row.get(f"option_{ch}", "").strip()
         ]
 
+        # ---- Step 3: Manim render ----
         beats    = row.get("beats_json", "").strip() or "[]"
         bindings = row.get("bindings_json", "").strip() or "[]"
 
@@ -157,6 +160,7 @@ def run_pipeline_for_row(row, output_dir, speaker_wav, dry_run=False) -> bool:
         if not os.path.exists(temp_video):
             raise FileNotFoundError(f"manim produced no file: {temp_video}")
 
+        # ---- Step 4: FFmpeg stitch ----
         ffmpeg_cmd = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-i", temp_video,
@@ -211,6 +215,7 @@ def main() -> int:
         _log(f"FATAL — reference voice sample missing: '{args.speaker_wav}'")
         return 1
 
+    _log(f"Reference voice: {args.speaker_wav}")
     rows = parse_csv_file(args.csv)
 
     if args.only:
@@ -218,7 +223,8 @@ def main() -> int:
         rows = [r for r in rows if r["video_id"] in wanted]
 
     if args.shard_total > 1:
-        rows = [r for i, r in enumerate(rows) if i % args.shard_total == args.shard_index]
+        rows = [r for i, r in enumerate(rows)
+                if i % args.shard_total == args.shard_index]
 
     _log(f"Worker {args.shard_index + 1}/{args.shard_total}: {len(rows)} job(s)")
 
