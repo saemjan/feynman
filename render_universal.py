@@ -1,4 +1,4 @@
-#!/usr/init/env python3
+#!/usr/bin/env python3
 """
 Elite Mobile-Optimized 1-Minute Physics Rendering Engine (3b1b & Feynman Style).
 Optimized for full vertical screen utilization (1080x1920) for mobile shorts.
@@ -34,12 +34,12 @@ class ElitePhysicsScene(MovingCameraScene):
         title_str = os.environ.get("CURRENT_TITLE", "Advanced Physics Analysis")
         eq_json = os.environ.get("EQUATIONS_JSON", "[]")
 
-        # 1. TOP HEADER ZONE (Y: +6.5 to +8.5)
+        # 1. TOP HEADER ZONE
         title = Tex(title_str, color=PALETTE["ACCENT_BLUE"], font_size=40).to_edge(UP, buff=1.0)
         underline = Line(LEFT * 4.5, RIGHT * 4.5, color=PALETTE["MUTED"], stroke_width=2).next_to(title, DOWN, buff=0.2)
         self.play(FadeIn(title, shift=DOWN * 0.3), Create(underline), run_time=0.8)
 
-        # 2. CENTER SIMULATION ZONE (Y: -3.0 to +5.0) - Dispatched per topic
+        # 2. CENTER SIMULATION ZONE - Dispatched per topic
         if "time_dilation" in video_id or "muon" in video_id:
             self.render_space_time_dilation_layout()
         elif "emc2" in video_id:
@@ -69,7 +69,6 @@ class ElitePhysicsScene(MovingCameraScene):
         return panel
 
     def render_space_time_dilation_layout(self):
-        # Spans upper-center to lower-center vertically
         mirror_top = Line(LEFT * 2, RIGHT * 2, color=PALETTE["ACCENT_BLUE"], stroke_width=6).shift(UP * 3.5)
         mirror_bot = Line(LEFT * 2, RIGHT * 2, color=PALETTE["ACCENT_BLUE"], stroke_width=6).shift(DOWN * 1.5)
         photon = Dot(mirror_bot.get_center(), color=PALETTE["ACCENT_GOLD"], radius=0.2)
@@ -81,7 +80,6 @@ class ElitePhysicsScene(MovingCameraScene):
             self.play(photon.animate.shift(UP * 5), run_time=0.8, rate_func=rate_functions.linear)
             self.play(photon.animate.shift(DOWN * 5), run_time=0.8, rate_func=rate_functions.linear)
 
-        # Diagonal zigzag path representation for moving frame
         path_line = Line(mirror_bot.get_center(), mirror_top.get_center() + RIGHT * 3, color=PALETTE["ACCENT_CORAL"], stroke_width=3, stroke_opacity=0.8)
         self.play(Create(path_line), run_time=1.5)
 
