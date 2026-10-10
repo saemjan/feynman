@@ -1,6 +1,7 @@
-#!/usr/bin/env python3
+#!/usr/init/env python3
 """
 Cinematic Soundscape Generator with A1 Fundamental Harmonic Drones.
+Fixed Pydub overlay method syntax.
 """
 
 import os
@@ -31,9 +32,14 @@ def process_and_normalize_wav(input_wav: str, output_wav: str):
         pad_raw_path = "temp_pad.wav"
         pad_data = generate_ambient_pad(duration_sec + 2.0)
         wavfile.write(pad_raw_path, 44100, pad_data)
+        
         ambient = AudioSegment.from_wav(pad_raw_path)
+        # Boost speech relative to background ambient pad safely
+        speech_boosted = speech + 6.0
 
-        combined = ambient.overlay(speech, position=500, gain_dB=6)
+        # Fixed overlay call (removed invalid gain_db keyword argument)
+        combined = ambient.overlay(speech_boosted, position=500)
+        
         normalized = combined.apply_gain(-1.0 - combined.max_dBFS)
         normalized.export(output_wav, format="wav")
 
