@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Pre-flight Schema and CSV Spec Validator for Extended Feynman Batch.
+Pre-flight Schema and CSV Spec Validator.
+Ensures compliance with extended Feynman & PYQ schema structure.
 """
 
 import csv
@@ -8,7 +9,7 @@ import sys
 
 
 def validate_csv(filepath: str):
-    print(f"[INFO] Validating extended schema for {filepath}...")
+    print(f"[INFO] Validating schema for {filepath}...")
     try:
         with open(filepath, mode="r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -24,7 +25,7 @@ def validate_csv(filepath: str):
                 word_count = len(words)
                 if not (90 <= word_count <= 160):
                     print(f"[WARN] Row {row_count} ({row['video_id']}): Script word count ({word_count}) outside optimal range.")
-        print(f"[SUCCESS] Extended schema validation passed for {row_count} rows.")
+        print(f"[SUCCESS] Schema validation passed for {row_count} rows.")
     except Exception as e:
         print(f"[FATAL] CSV validation crashed: {e}")
         sys.exit(1)
