@@ -1,102 +1,168 @@
-name: Elite Feynman Physics Shorts Pipeline
+name: Automated Vertical Physics Shorts Pipeline
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
+    paths-ignore: ['**.md', '.gitignore', 'LICENSE']
+  pull_request:
+    branches: [main, master]
+    paths-ignore: ['**.md', '.gitignore', 'LICENSE']
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  COQUI_TOS_AGREED: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+  PYTHONUNBUFFERED: '1'
+  COQUI_TOS_AGREED: '1'
 
 jobs:
   preflight:
-    name: Pre-flight CSV & Schema Validation
+    name: Pre-flight Validation
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       job_count: ${{ steps.validate.outputs.job_count }}
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Validate CSV & Schema Specs
+      - name: Verify reference voice sample exists
+        run: |
+          set -euo pipefail
+          test -f saem_voice_sample.wav || {
+            echo "::error file=saem_voice_sample.wav::Reference voice sample is missing. XTTS is required."
+            exit 1
+          }
+
+      - name: Validate CSV & JSON
         id: validate
         run: |
+          set -euo pipefail
           python schema_validator.py content_batch.csv
-          COUNT=$(python -c "import csv; print(len(list(csv.reader(open('content_batch.csv'))))-1)")
+          COUNT=$(python -c "import csv; print(sum(1 for _ in csv.reader(open('content_batch.csv')))-1)")
           echo "job_count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "### Pre-flight Checklist Passed :rocket:" >> "$GITHUB_STEP_SUMMARY"
-          echo "Validated $COUNT rigorous physics specifications." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Pre-flight Passed :rocket:"
+            echo ""
+            echo "Validated **$COUNT** physics short specifications."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   render:
-    name: Parallel Render Worker
+    name: Render Worker (${{ matrix.worker }})
     needs: preflight
     runs-on: ubuntu-latest
+    timeout-minutes: 300
     strategy:
       matrix:
         worker: [0, 1, 2, 3]
       fail-fast: false
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install System Dependencies
+      - name: Install system dependencies
         run: |
-          echo "::group::Installing Ubuntu Package Dependencies"
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-plain-generic dvisvgm libpango1.0-dev pkg-config libcairo2-dev
+          echo "::group::Installing LaTeX + FFmpeg + native libs"
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ffmpeg \
+            texlive-latex-base texlive-latex-recommended texlive-latex-extra \
+            texlive-science texlive-fonts-recommended texlive-plain-generic dvisvgm \
+            libcairo2-dev libpango1.0-dev libsndfile1 \
+            espeak-ng fonts-noto
           echo "::endgroup::"
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install PyTorch & Dependencies
+      - name: Install Python dependencies
         run: |
-          echo "::group::Installing Python Dependencies"
           python -m pip install --upgrade "pip<24.1"
-          pip install torch==2.2.2 torchaudio==2.2.2 --extra-index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
-          echo "::endgroup::"
+          pip install --prefer-binary -r requirements.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
 
-      - name: Cache XTTS Model Weights
+      - name: Cache XTTS-v2 model weights
         uses: actions/cache@v4
         with:
-          path: ~/.local/share/tts
-          key: ${{ runner.os }}-tts-xtts-v2
+          path: |
+            ~/.local/share/tts
+            ~/.cache/huggingface
+          key: xtts-v2-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
-      - name: Execute Parallel Shard Batch
+      - name: Compile-check all Python files
         run: |
-          python batch_runner.py --shard-index ${{ matrix.worker }} --shard-total 4 --output_dir dist
+          set -euo pipefail
+          python -m py_compile \
+            soundscape.py generate_audio.py render_universal.py \
+            schema_validator.py batch_runner.py
+          echo "  ✓ all Python files compile"
 
-      - name: Upload Runner Artifacts
+      - name: Execute shard ${{ matrix.worker }}
+        run: |
+          mkdir -p dist
+          python batch_runner.py \
+            --shard-index ${{ matrix.worker }} \
+            --shard-total 4 \
+            --output_dir dist
+
+      - name: Upload worker artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: physics-shorts-worker-${{ matrix.worker }}
+          name: physics-shorts-worker-${{ matrix.worker }}-${{ github.run_id }}
           path: dist/*.mp4
+          if-no-files-found: warn
           retention-days: 7
 
   bundle:
-    name: Aggregate & Publish Artifacts
+    name: Aggregate & Publish
     needs: render
     runs-on: ubuntu-latest
+    if: always()
+    timeout-minutes: 15
     steps:
-      - name: Download All Parallel Artifacts
+      - name: Download all worker artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: physics-shorts-worker-*
+          pattern: physics-shorts-worker-*-${{ github.run_id }}
           merge-multiple: true
-          path: dist
+          path: final
 
-      - name: Upload Complete Bundle
+      - name: Build job summary
+        run: |
+          set -euo pipefail
+          COUNT=$(find final -name '*.mp4' 2>/dev/null | wc -l)
+          SIZE=$(du -sh final 2>/dev/null | cut -f1 || echo "0B")
+          {
+            echo "# 🎬 Physics Shorts — Production Summary"
+            echo ""
+            echo "**Status:** $COUNT video(s),$SIZE total"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COUNT" -gt 0 ]; then
+            {
+              echo "| Filename | Size |"
+              echo "| :--- | :---: |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            find final -name '*.mp4' -printf '%f\t%s\n' | while IFS=$'\t' read -r f b; do
+              MB=$(awk "BEGIN {printf \"\%.2f\", $b/1048576}")
+              echo "| \`$f\` | **${MB} MB** |" >> "$GITHUB_STEP_SUMMARY"
+            done
+          else
+            echo "_No videos were produced in this run._" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload final bundle
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: physics-shorts-complete-bundle
-          path: dist/*.mp4
+          name: physics-shorts-final-${{ github.run_id }}
+          path: final/*.mp4
+          if-no-files-found: warn
           retention-days: 7
