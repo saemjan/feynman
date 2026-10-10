@@ -1,36 +1,117 @@
 #!/usr/bin/env python3
-"""
-Pre-flight Schema and CSV Spec Validator.
-Ensures compliance with extended Feynman & PYQ schema structure.
-"""
+"""schema_validator.py — Pre-flight CSV & JSON validator."""
 
+from __future__ import annotations
 import csv
+import json
+import re
 import sys
 
+X_MIN, X_MAX = -3.5, 3.5
+Y_MIN, Y_MAX = -2.2, 1.8
+WORD_MIN, WORD_MAX = 70, 200
 
-def validate_csv(filepath: str):
-    print(f"[INFO] Validating schema for {filepath}...")
-    try:
-        with open(filepath, mode="r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            required_fields = {"video_id", "concept_type", "header_title", "audio_script"}
-            if not required_fields.issubset(reader.fieldnames or []):
-                print(f"[FATAL] Missing required CSV columns. Found: {reader.fieldnames}")
-                sys.exit(1)
 
-            row_count = 0
-            for row in reader:
-                row_count += 1
-                words = row["audio_script"].split()
-                word_count = len(words)
-                if not (90 <= word_count <= 220):
-                    print(f"[WARN] Row {row_count} ({row['video_id']}): Script word count ({word_count}) outside 1-minute range.")
-        print(f"[SUCCESS] Schema validation passed for {row_count} rows.")
-    except Exception as e:
-        print(f"[FATAL] CSV validation crashed: {e}")
-        sys.exit(1)
+def safe_json_loads(val_str: str):
+    if not val_str or val_str.strip() in ('""', ""):
+        return []
+    cleaned = re.sub(r"(?<!\\)\\(?!\\)", r"\\\\", val_str)
+    return json.loads(cleaned)
+
+
+def _check_bounds(item, vid, row):
+    out = []
+    for k in ("pos", "start", "end", "center", "pivot"):
+        if k not in item:
+            continue
+        c = item[k]
+        if not isinstance(c, (list, tuple)) or len(c) < 2:
+            continue
+        try:
+            x, y = float(c[0]), float(c[1])
+        except (TypeError, ValueError):
+            continue
+        if not (X_MIN <= x <= X_MAX and Y_MIN <= y <= Y_MAX):
+            out.append(f"[WARN] Row {row} ({vid}) '{item.get('type')}' {k}=({x},{y}) "
+                       f"outside X∈[{X_MIN},{X_MAX}] Y∈[{Y_MIN},{Y_MAX}]")
+    return out
+
+
+def validate_csv(path: str) -> bool:
+    has_errors = False
+    with open(path, "r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        try:
+            header = next(reader)
+        except StopIteration:
+            print("[ERROR] CSV is empty.")
+            return False
+        if len(header) < 13:
+            print(f"[ERROR] Header has {len(header)} cols, expected ≥13.")
+            return False
+
+        for row_idx, row in enumerate(reader, start=2):
+            if not row:
+                continue
+            if len(row) < 13:
+                print(f"[ERROR] Row {row_idx}: {len(row)} cols, need ≥13.")
+                has_errors = True
+                continue
+
+            vid = row[0].strip() or f"row_{row_idx}"
+            script = row[12].strip()
+            words = script.split()
+            if words and not (WORD_MIN <= len(words) <= WORD_MAX):
+                print(f"[WARN] Row {row_idx} ({vid}): {len(words)} words "
+                      f"(want {WORD_MIN}-{WORD_MAX}).")
+
+            for col_name, col_idx in (("equations_json", 10), ("visual_data_json", 11)):
+                try:
+                    parsed = safe_json_loads(row[col_idx].strip())
+                    if not isinstance(parsed, list):
+                        print(f"[ERROR] Row {row_idx} ({vid}): {col_name} not a list.")
+                        has_errors = True
+                    elif col_name == "visual_data_json":
+                        for it in parsed:
+                            if isinstance(it, dict):
+                                for w in _check_bounds(it, vid, row_idx):
+                                    print(w)
+                except Exception as e:
+                    print(f"[ERROR] Row {row_idx} ({vid}): {col_name} — {e}")
+                    has_errors = True
+
+            if len(row) > 13 and row[13].strip():
+                try:
+                    beats = safe_json_loads(row[13].strip())
+                    if not isinstance(beats, list):
+                        print(f"[ERROR] Row {row_idx} ({vid}): beats_json not a list.")
+                        has_errors = True
+                except Exception as e:
+                    print(f"[ERROR] Row {row_idx} ({vid}): beats_json — {e}")
+                    has_errors = True
+
+            if len(row) > 14 and row[14].strip():
+                try:
+                    binds = safe_json_loads(row[14].strip())
+                    if not isinstance(binds, list):
+                        print(f"[ERROR] Row {row_idx} ({vid}): bindings_json not a list.")
+                        has_errors = True
+                except Exception as e:
+                    print(f"[ERROR] Row {row_idx} ({vid}): bindings_json — {e}")
+                    has_errors = True
+
+    return not has_errors
+
+
+def main() -> int:
+    target = sys.argv[1] if len(sys.argv) > 1 else "content_batch.csv"
+    print(f"[INFO] Validating {target}")
+    if validate_csv(target):
+        print("[SUCCESS] All checks passed.")
+        return 0
+    print("[FATAL] Validation failed.")
+    return 1
 
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else "content_batch.csv"
-    validate_csv(target)
+    sys.exit(main())
