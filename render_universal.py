@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """
 render_universal.py — Cinematic 9:16 Manim renderer with beat-driven narrative.
+
+Beat semantics:
+  hook       — type a question onto the top of the frame
+  analogy    — dim the equation card (if revealed) and pulse the focus visual
+  experiment — draw attention to a visual (Indicate, not re-Create)
+  law        — reveal the equation card, write equations term-by-term
+  emphasis   — SYMBOL ↔ VISUAL BINDING: pulse equation term AND visual together
+  punchline  — circumscribe the answer
 """
 
 from __future__ import annotations
@@ -19,6 +27,7 @@ RF_SOFT   = rf.ease_in_out_sine
 RF_SNAP   = rf.ease_out_cubic
 RF_SPRING = rf.ease_out_back
 
+# ---------------- 9:16 vertical config -------------------------------------
 config.pixel_width  = 1080
 config.pixel_height = 1920
 config.frame_width  = 9.0
@@ -27,6 +36,7 @@ config.frame_rate   = 30
 config.background_color = "#0B0C10"
 config.disable_caching = True
 
+# ---------------- palette ---------------------------------------------------
 COLOR = {
     "bg": "#0B0C10", "card": "#15161D", "border": "#2A2C36",
     "white": "#F2F3F5", "muted": "#8A8F9C",
@@ -47,10 +57,22 @@ ZONE_VISUAL    =  0.30
 ZONE_EQUATIONS = -5.00
 ZONE_ANSWER    = -7.00
 
+# Beat type constants
+BEAT_HOOK       = "hook"
+BEAT_ANALOGY    = "analogy"
+BEAT_EXPERIMENT = "experiment"
+BEAT_LAW        = "law"
+BEAT_EMPHASIS   = "emphasis"
+BEAT_PUNCHLINE  = "punchline"
+
+_KNOWN_BEATS = {BEAT_HOOK, BEAT_ANALOGY, BEAT_EXPERIMENT,
+                BEAT_LAW, BEAT_EMPHASIS, BEAT_PUNCHLINE}
+
 
 def _log(m): print(f"[render] {m}", file=sys.stderr, flush=True)
 
 
+# ============================================================ helpers
 def safe_json_loads(val_str: str):
     if not val_str or val_str.strip() in ('""', ""):
         return []
@@ -121,7 +143,8 @@ def has_updater(m):
 def live_wait(scene, duration, mobs=None, breathe_scale=0.014):
     if duration <= 0.05:
         return
-    candidates = mobs if mobs is not None else [m for m in scene.mobjects if isinstance(m, VMobject)]
+    candidates = mobs if mobs is not None else \
+                 [m for m in scene.mobjects if isinstance(m, VMobject)]
     targets = [m for m in candidates if isinstance(m, VMobject) and not has_updater(m)][:6]
     if not targets:
         scene.wait(duration)
@@ -133,7 +156,8 @@ def live_wait(scene, duration, mobs=None, breathe_scale=0.014):
         for m in targets:
             try:
                 anims.append(
-                    m.animate(rate_func=there_and_back, run_time=per).scale(1 + breathe_scale)
+                    m.animate(rate_func=there_and_back, run_time=per)
+                     .scale(1 + breathe_scale)
                 )
             except Exception:
                 continue
@@ -146,6 +170,7 @@ def live_wait(scene, duration, mobs=None, breathe_scale=0.014):
             scene.wait(per)
 
 
+# ============================================================ camera
 class CameraDirector:
     def __init__(self, scene): self.s = scene
 
@@ -175,12 +200,14 @@ def make_card(content, width=7.8):
     return VGroup(bg, content)
 
 
+# ============================================================ scene
 class UniversalPhysicsScene(MovingCameraScene):
     def __init__(self, scene_kwargs=None, **kwargs):
         super().__init__(**kwargs)
         self.sk = scene_kwargs or {}
         self.eq_mobs: list[Mobject] = []
         self.visuals_by_id: dict = {}
+        self._law_fired = False   # ★ tracks whether equation card has been revealed
 
     def construct(self):
         sk = self.sk
@@ -195,12 +222,17 @@ class UniversalPhysicsScene(MovingCameraScene):
         if sk.get("question_text"):
             self._build_question(sk["question_text"])
 
-        visual_group = self._build_visuals(safe_json_loads(sk.get("visual_data_json", "[]")))
+        visual_group = self._build_visuals(
+            safe_json_loads(sk.get("visual_data_json", "[]"))
+        )
         if len(visual_group) > 0:
             self._reveal_visuals(visual_group)
 
-        eq_card = self._build_equation_card(safe_json_loads(sk.get("equations_json", "[]")))
+        eq_card = self._build_equation_card(
+            safe_json_loads(sk.get("equations_json", "[]"))
+        )
 
+        # Beat-driven OR legacy reveal
         if beats:
             self._run_beat_timeline(beats, bindings, eq_card, visual_group, duration)
         else:
@@ -211,19 +243,25 @@ class UniversalPhysicsScene(MovingCameraScene):
             if remaining > 0.4:
                 live_wait(self, remaining, focus[0] if focus else None)
 
+        # PYQ options + answer
         options = [o for o in (sk.get("options") or []) if o and o.strip()]
         correct = sk.get("correct_answer", "")
         if options or correct:
             ans_box = self._build_answers(options, correct)
             if ans_box is not None:
                 self.play(FadeIn(ans_box, shift=UP * 0.2), run_time=0.5)
-                self.play(Circumscribe(ans_box, color=COLOR["accent"], buff=0.15, run_time=0.8))
+                self.play(Circumscribe(ans_box, color=COLOR["accent"],
+                                       buff=0.15, run_time=0.8))
 
+    # ============================================================ beats
     def _run_beat_timeline(self, beats, bindings, eq_card, visual_group, duration):
+        # ★ FIXED: hide both bg and content separately so law can restore precisely
         if len(eq_card) > 0:
-            eq_card.set_opacity(0)
+            eq_card[0].set_opacity(0)   # bg
+            eq_card[1].set_opacity(0)   # content
             self.add(eq_card)
 
+        # Build binding map
         bindings_map: dict[str, tuple[int, int]] = {}
         for b in bindings:
             if not isinstance(b, dict):
@@ -231,10 +269,8 @@ class UniversalPhysicsScene(MovingCameraScene):
             vid = str(b.get("visual_id", "")).strip()
             if not vid or vid not in self.visuals_by_id:
                 continue
-            bindings_map[vid] = (
-                int(b.get("eq_idx", 0)),
-                int(b.get("term_idx", 0)),
-            )
+            bindings_map[vid] = (int(b.get("eq_idx", 0)),
+                                 int(b.get("term_idx", 0)))
 
         eq_contents = eq_card[1] if len(eq_card) > 1 else None
         timeline_start = self.renderer.time
@@ -253,18 +289,22 @@ class UniversalPhysicsScene(MovingCameraScene):
             kind  = str(beat.get("type", "")).lower()
             focus = str(beat.get("focus", "")).strip()
 
+            if kind not in _KNOWN_BEATS:
+                _log(f"unknown beat type: '{kind}' (skipping)")
+                continue
+
             try:
-                if kind == "hook":
+                if kind == BEAT_HOOK:
                     self._beat_hook(beat)
-                elif kind == "analogy":
+                elif kind == BEAT_ANALOGY:
                     self._beat_analogy(focus, eq_card)
-                elif kind == "experiment":
+                elif kind == BEAT_EXPERIMENT:
                     self._beat_experiment(focus)
-                elif kind == "law":
+                elif kind == BEAT_LAW:
                     self._beat_law(eq_card)
-                elif kind == "emphasis":
+                elif kind == BEAT_EMPHASIS:
                     self._beat_emphasis(focus, bindings_map, self.eq_mobs, eq_contents)
-                elif kind == "punchline":
+                elif kind == BEAT_PUNCHLINE:
                     self._beat_punchline(eq_card)
             except Exception as e:
                 _log(f"beat '{kind}' failed: {type(e).__name__}: {e}")
@@ -278,46 +318,72 @@ class UniversalPhysicsScene(MovingCameraScene):
         if not content:
             return
         lines = textwrap.wrap(content, width=32) or [content]
-        hook = Paragraph(*lines, alignment="center", font_size=28, color=COLOR["accent"], line_spacing=0.9)
+        hook = Paragraph(*lines, alignment="center", font_size=28,
+                         color=COLOR["accent"], line_spacing=0.9)
         if hook.width > 7.5:
             hook.scale_to_fit_width(7.5)
         hook.move_to([0, ZONE_QUESTION, 0])
         self.play(Write(hook), run_time=0.9)
 
     def _beat_analogy(self, focus_id: str, eq_card: VGroup):
-        if len(eq_card) > 0:
+        """
+        ★ FIXED: only dim the equation card if `law` has already fired.
+        Otherwise the card is at opacity 0 and dimming reveals a ghost.
+        """
+        if len(eq_card) > 0 and self._law_fired:
             self.play(eq_card.animate.set_opacity(0.30), run_time=0.4)
         mob = self.visuals_by_id.get(focus_id)
         if mob is not None:
-            self.play(mob.animate(rate_func=there_and_back, run_time=0.7).scale(1.10))
+            self.play(
+                mob.animate(rate_func=there_and_back, run_time=0.7).scale(1.08)
+            )
 
     def _beat_experiment(self, focus_id: str):
+        """★ FIXED: was Create() on an already-visible mob → re-draw flicker."""
         mob = self.visuals_by_id.get(focus_id)
         if mob is not None:
-            try:
-                self.play(Create(mob), run_time=1.2)
-            except Exception:
-                self.play(Indicate(mob, color=COLOR["accent"], scale_factor=1.08), run_time=0.8)
+            self.play(
+                Indicate(mob, color=COLOR["accent"], scale_factor=1.10),
+                run_time=0.9,
+            )
 
     def _beat_law(self, eq_card: VGroup):
         if len(eq_card) == 0:
             return
+        if self._law_fired:
+            # Already revealed — just restore visibility if analogy dimmed it
+            self.play(eq_card.animate.set_opacity(1.0), run_time=0.3)
+            return
+
         bg, content = eq_card[0], eq_card[1]
         self.play(bg.animate.set_opacity(0.96), run_time=0.5)
-        self.director.zoom(1.14, run_time=0.7, center=np.array([0, ZONE_EQUATIONS, 0]))
+        self.director.zoom(1.14, run_time=0.7,
+                           center=np.array([0, ZONE_EQUATIONS, 0]))
+
         if isinstance(content, VGroup):
-            content.set_opacity(1)
             for eq in content:
+                # Reveal each equation via Write; keep mob visible but stroke blank
+                eq.set_opacity(1)
                 try:
                     eq.set_stroke(opacity=0)
                 except Exception:
                     pass
             for eq in content:
                 self.play(Write(eq, rate_func=smooth), run_time=0.7)
-                self.wait(0.1)
-        self.director.reset(run_time=0.6)
+                # Subtle emphasis pulse instead of frozen wait
+                self.play(
+                    eq.animate(rate_func=there_and_back, run_time=0.16).scale(1.008)
+                )
 
-    def _beat_emphasis(self, focus_id: str, bindings_map: dict, eq_mobs: list, eq_contents):
+        self.director.reset(run_time=0.6)
+        self._law_fired = True
+
+    def _beat_emphasis(self, focus_id: str, bindings_map: dict,
+                       eq_mobs: list, eq_contents):
+        """
+        SYMBOL ↔ VISUAL BINDING — the 3b1b signature move.
+        ★ FIXED: skip equation-term pulse if `law` hasn't fired (invisible term).
+        """
         mob = self.visuals_by_id.get(focus_id)
         binding = bindings_map.get(focus_id)
 
@@ -325,11 +391,13 @@ class UniversalPhysicsScene(MovingCameraScene):
         if mob is not None:
             anims.append(Indicate(mob, color=COLOR["accent"], scale_factor=1.15))
 
-        if binding is not None and eq_contents is not None:
+        if (binding is not None and eq_contents is not None
+                and self._law_fired):
             eq_idx, term_idx = binding
             try:
                 term_mob = eq_mobs[eq_idx][0][term_idx]
-                anims.append(Indicate(term_mob, color=COLOR["accent"], scale_factor=1.20))
+                anims.append(Indicate(term_mob, color=COLOR["accent"],
+                                      scale_factor=1.20))
             except (IndexError, AttributeError):
                 pass
 
@@ -341,8 +409,10 @@ class UniversalPhysicsScene(MovingCameraScene):
     def _beat_punchline(self, eq_card: VGroup):
         target = eq_card if len(eq_card) > 0 else None
         if target is not None:
-            self.play(Circumscribe(target, color=COLOR["accent"], buff=0.20, run_time=1.0))
+            self.play(Circumscribe(target, color=COLOR["accent"],
+                                   buff=0.20, run_time=1.0))
 
+    # ============================================================ header
     def _build_header(self, title, tagline):
         parts = []
         if title:
@@ -366,15 +436,18 @@ class UniversalPhysicsScene(MovingCameraScene):
             self.play(GrowFromCenter(rule), run_time=0.4)
             self.play(FadeIn(parts[-1], shift=UP * 0.1), run_time=0.4)
 
+    # ============================================================ question
     def _build_question(self, text):
         lines = textwrap.wrap(text, width=38) or [text]
-        q = Paragraph(*lines, alignment="center", font_size=20, line_spacing=0.75, color=WHITE)
+        q = Paragraph(*lines, alignment="center", font_size=20,
+                      line_spacing=0.75, color=WHITE)
         if q.width > 8.0:
             q.scale_to_fit_width(8.0)
         q.move_to([0, ZONE_QUESTION, 0])
         self.play(FadeIn(q, shift=DOWN * 0.2), run_time=0.6)
         return q
 
+    # ============================================================ visuals
     def _build_visuals(self, visual_data):
         group = VGroup()
         for idx, item in enumerate(visual_data):
@@ -390,12 +463,14 @@ class UniversalPhysicsScene(MovingCameraScene):
 
     def _reveal_visuals(self, group):
         self.play(
-            LaggedStart(*[FadeIn(m, shift=UP * 0.25) for m in group], lag_ratio=0.20),
+            LaggedStart(*[FadeIn(m, shift=UP * 0.25) for m in group],
+                        lag_ratio=0.20),
             run_time=1.4,
         )
         self.director.zoom(1.10, run_time=0.9, center=np.array([0, ZONE_VISUAL, 0]))
         self.director.reset(run_time=0.7)
 
+    # ============================================================ equations
     def _build_equation_card(self, equations):
         if not equations:
             return VGroup()
@@ -418,11 +493,14 @@ class UniversalPhysicsScene(MovingCameraScene):
         self.director.zoom(1.14, run_time=0.7, center=np.array([0, ZONE_EQUATIONS, 0]))
         if isinstance(content, VGroup):
             for i, eq in enumerate(content):
-                self.play(Write(eq, rate_func=smooth), run_time=0.9 if i == 0 else 0.7)
+                self.play(Write(eq, rate_func=smooth),
+                          run_time=0.9 if i == 0 else 0.7)
                 self.wait(0.15)
         live_wait(self, 0.6, [content])
         self.director.reset(run_time=0.7)
+        self._law_fired = True
 
+    # ============================================================ answers
     def _build_answers(self, options, correct):
         parts = []
         if options:
@@ -450,6 +528,7 @@ class UniversalPhysicsScene(MovingCameraScene):
         group.move_to([0, ZONE_ANSWER + 1.5, 0])
         return group
 
+    # ============================================================ primitives
     def _build_primitive(self, item, idx):
         itype = str(item.get("type", "")).lower()
         color = resolve_color(item)
@@ -460,17 +539,21 @@ class UniversalPhysicsScene(MovingCameraScene):
                 direction = str(item.get("direction", "RIGHT")).upper()
                 rows = int(item.get("rows", 5))
                 op = float(item.get("opacity", 0.4))
-                dv = {"RIGHT": RIGHT, "LEFT": LEFT, "UP": UP, "DOWN": DOWN}.get(direction, RIGHT)
+                dv = {"RIGHT": RIGHT, "LEFT": LEFT,
+                      "UP": UP, "DOWN": DOWN}.get(direction, RIGHT)
                 field = VGroup()
                 for y in np.linspace(-1.2, 1.2, rows):
                     for x in np.linspace(-2.5, 2.5, 5):
                         s = np.array([x, y, 0.0])
                         e = s + dv * 0.55
-                        arr = Arrow(start=s, end=e, buff=0, color=color, stroke_width=2, max_tip_length_to_length_ratio=0.32)
+                        arr = Arrow(start=s, end=e, buff=0, color=color,
+                                    stroke_width=2,
+                                    max_tip_length_to_length_ratio=0.32)
                         arr.set_opacity(op)
                         field.add(arr)
                 if label:
-                    field.add(safe_latex(label, 28, color).next_to(field, UP, buff=0.2))
+                    field.add(safe_latex(label, 28, color)
+                              .next_to(field, UP, buff=0.2))
                 return field
 
             if itype in ("charge", "particle", "dot"):
@@ -478,7 +561,8 @@ class UniversalPhysicsScene(MovingCameraScene):
                 r = float(item.get("radius", 0.22))
                 dot = Dot(point=pos, radius=r, color=color)
                 if label:
-                    return VGroup(dot, safe_latex(label, 20, WHITE).next_to(dot, UP, buff=0.1))
+                    return VGroup(dot, safe_latex(label, 20, WHITE)
+                                  .next_to(dot, UP, buff=0.1))
                 return dot
 
             if itype in ("vector", "arrow", "force"):
@@ -486,7 +570,8 @@ class UniversalPhysicsScene(MovingCameraScene):
                 e = to_3d(item.get("end", [1, 0, 0]))
                 arr = Arrow(start=s, end=e, buff=0, color=color, stroke_width=4)
                 if label:
-                    return VGroup(arr, safe_latex(label, 22, color).next_to(arr.get_end(), RIGHT, buff=0.1))
+                    return VGroup(arr, safe_latex(label, 22, color)
+                                  .next_to(arr.get_end(), RIGHT, buff=0.1))
                 return arr
 
             if itype in ("line", "rod", "segment"):
@@ -505,7 +590,8 @@ class UniversalPhysicsScene(MovingCameraScene):
                     arc_center=c, color=color,
                 )
                 if label:
-                    return VGroup(arc, safe_latex(label, 20, color).next_to(arc, RIGHT, buff=0.1))
+                    return VGroup(arc, safe_latex(label, 20, color)
+                                  .next_to(arc, RIGHT, buff=0.1))
                 return arc
 
             if itype in ("graph", "function", "curve"):
@@ -519,7 +605,9 @@ class UniversalPhysicsScene(MovingCameraScene):
                     axis_config={"color": COLOR["muted"], "stroke_width": 2},
                 )
                 expr = item.get("expression", "x")
-                g = axes.plot(lambda x: eval_expr(expr, x), x_range=[xr[0], xr[1]], color=color, stroke_width=4)
+                g = axes.plot(lambda x: eval_expr(expr, x),
+                              x_range=[xr[0], xr[1]],
+                              color=color, stroke_width=4)
                 return VGroup(axes, g)
 
             if itype in ("shape", "lens", "circle", "rectangle", "ellipse", "polygon"):
@@ -528,22 +616,28 @@ class UniversalPhysicsScene(MovingCameraScene):
                 fo = float(item.get("fill_opacity", 0.2))
                 if kind == "rectangle":
                     d = item.get("dims", [2.0, 1.0])
-                    return Rectangle(width=d[0], height=d[1], color=color, fill_opacity=fo).move_to(pos)
+                    return Rectangle(width=d[0], height=d[1], color=color,
+                                     fill_opacity=fo).move_to(pos)
                 if kind == "ellipse":
-                    return Ellipse(width=float(item.get("width", 3.0)), height=float(item.get("height", 1.8)), color=color, fill_opacity=fo).move_to(pos)
+                    return Ellipse(width=float(item.get("width", 3.0)),
+                                   height=float(item.get("height", 1.8)),
+                                   color=color, fill_opacity=fo).move_to(pos)
                 if kind == "lens":
-                    return Ellipse(width=0.6, height=2.8, color=color, fill_color=color, fill_opacity=0.3).move_to(pos)
+                    return Ellipse(width=0.6, height=2.8, color=color,
+                                   fill_color=color, fill_opacity=0.3).move_to(pos)
                 if kind == "polygon":
                     pts = [to_3d(p) for p in item.get("points", [])]
                     if len(pts) >= 3:
                         return Polygon(*pts, color=color, fill_opacity=fo)
                     return None
-                return Circle(radius=float(item.get("radius", 1.0)), color=color, stroke_width=3).move_to(pos)
+                return Circle(radius=float(item.get("radius", 1.0)),
+                              color=color, stroke_width=3).move_to(pos)
 
             if itype == "text":
                 txt = str(item.get("text", label))
                 pos = to_3d(item.get("pos", [0, 0, 0]))
-                return safe_latex(txt, int(item.get("font_size", 22)), color).move_to(pos)
+                return safe_latex(txt, int(item.get("font_size", 22)),
+                                  color).move_to(pos)
 
             if itype == "group":
                 sub = VGroup()
@@ -560,6 +654,7 @@ class UniversalPhysicsScene(MovingCameraScene):
         return None
 
 
+# ============================================================ CLI
 def main() -> int:
     p = argparse.ArgumentParser(description="Manim 9:16 cinematic renderer.")
     p.add_argument("--video_id", required=True)
