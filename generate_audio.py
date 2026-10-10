@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """
-generate_audio.py — XTTS-v2 voice cloning tuned for maximum identity match.
+generate_audio.py — XTTS-v2 voice cloning.
+
+★ REVERTED to the parameters that sounded natural:
+    temperature        = 0.70   (was 0.55 — too rigid)
+    top_k              = 50     (was 20  — too narrow)
+    top_p              = 0.85   (was 0.75 — too tight)
+    repetition_penalty = 3.0    (was 2.5)
+    speed              = 0.95   (was 1.0)
 """
 
 from __future__ import annotations
@@ -15,13 +22,13 @@ CANONICAL_SR = 44100
 _TTS_MODEL = None
 _SPEAKER_LATENT: dict = {}
 
-# Identity-locked generation params
-IDENTITY_PARAMS = {
-    "temperature": 0.55,
-    "top_k": 20,
-    "top_p": 0.75,
-    "repetition_penalty": 2.5,
-    "speed": 1.0,
+# ★ Natural-sounding generation params (matches the "good" version)
+VOICE_PARAMS = {
+    "temperature": 0.70,
+    "top_k": 50,
+    "top_p": 0.85,
+    "repetition_penalty": 3.0,
+    "speed": 0.95,
     "enable_text_splitting": True,
 }
 
@@ -35,38 +42,15 @@ def get_deterministic_seed(video_id: str) -> int:
 
 
 def _inspect_reference(path: str) -> None:
-    """Deep audit — warns on identity-degrading reference properties."""
-    import soundfile as sf
-    info = sf.info(path)
-    dur = info.frames / float(info.samplerate)
-    _log(f"Reference: {dur:.2f}s, {info.samplerate} Hz, {info.channels} ch")
-
-    if dur < 6.0:
-        _log(f"!! CRITICAL: reference is {dur:.1f}s — XTTS clones poorly below 10s")
-    elif dur < 10.0:
-        _log(f"!! WARN: reference is {dur:.1f}s — 10-20s gives a much tighter clone")
-    elif dur > 30.0:
-        _log(f"!! WARN: reference is {dur:.1f}s — trim to 15s for sharper identity")
-
-    if info.samplerate < 16000:
-        _log(f"!! WARN: {info.samplerate} Hz reference loses vocal detail")
-
-    # SNR check — noisy references leak into the clone
     try:
-        import numpy as np
-        data, _ = sf.read(path, always_2d=False)
-        if data.ndim > 1:
-            data = data.mean(axis=1)
-        win = max(1, int(info.samplerate * 0.02))
-        energies = np.array([np.sqrt(np.mean(data[i:i+win]**2))
-                            for i in range(0, max(1, len(data) - win), win)])
-        if len(energies) > 10:
-            noise = np.percentile(energies, 10)
-            signal = np.percentile(energies, 90)
-            snr_db = 20 * np.log10((signal + 1e-12) / (noise + 1e-12))
-            _log(f"Reference SNR ~ {snr_db:.1f} dB")
-            if snr_db < 25:
-                _log("!! WARN: SNR < 25 dB — background noise will leak into clone")
+        import soundfile as sf
+        info = sf.info(path)
+        dur = info.frames / float(info.samplerate)
+        _log(f"Reference: {dur:.2f}s, {info.samplerate} Hz, {info.channels} ch")
+        if dur < 6.0:
+            _log(f"!! WARN: reference is {dur:.1f}s — 10-20s clones much better")
+        elif dur > 30.0:
+            _log(f"!! WARN: reference is {dur:.1f}s — trimming to 15s sharpens identity")
     except Exception:
         pass
 
@@ -120,7 +104,7 @@ def synthesize(text: str, speaker_wav: str, output_wav: str, seed: int) -> None:
         return model.synthesizer.tts_model.inference(
             text=text, language="en",
             gpt_cond_latent=g, speaker_embedding=e,
-            **IDENTITY_PARAMS,
+            **VOICE_PARAMS,
         )
 
     try:
@@ -157,7 +141,7 @@ def synthesize(text: str, speaker_wav: str, output_wav: str, seed: int) -> None:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="XTTS-v2 identity-tuned voice cloning.")
+    p = argparse.ArgumentParser(description="XTTS-v2 voice cloning.")
     p.add_argument("--video_id", required=True)
     p.add_argument("--script", required=True)
     p.add_argument("--speaker_wav", default="saem_voice_sample.wav")
