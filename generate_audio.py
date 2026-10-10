@@ -1,8 +1,8 @@
-#!/usr/init/env python3
+#!/usr/bin/env python3
 """
 Strict Neural Voice Synthesis Engine.
-Enforces absolute path resolution for saem_voice_sample.wav to guarantee 
-zero-shot male voice cloning with zero fallback to generic or stock voices.
+Enforces absolute path resolution and pre-authorizes Coqui XTTS-v2 TOS agreements 
+to guarantee authentic male voice cloning from saem_voice_sample.wav without fallbacks.
 """
 
 import argparse
@@ -11,7 +11,7 @@ import os
 import subprocess
 import sys
 
-# --- FORCE COQUI TERMS OF SERVICE AGREEMENT ---
+# Pre-authorize Coqui TOS
 os.environ["COQUI_TOS_AGREED"] = "1"
 tos_dir = os.path.expanduser("~/.local/share/tts")
 os.makedirs(tos_dir, exist_ok=True)
@@ -22,30 +22,24 @@ from soundscape import process_and_normalize_wav
 
 
 def get_deterministic_seed(video_id: str) -> int:
-    """Derives a stable 32-bit integer seed from SHA-256 hash of video_id."""
     return int(hashlib.sha256(video_id.encode("utf-8")).hexdigest(), 16) % (2**32)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Strict Voice Cloning Engine")
-    parser.add_argument("--video_id", required=True, help="Unique identifier for seed generation")
-    parser.add_argument("--script", required=True, help="Plain text narration script")
-    parser.add_argument("--speaker_wav", default="saem_voice_sample.wav", help="Reference voice sample")
-    parser.add_argument("--output", required=True, help="Destination WAV file path")
+    parser = argparse.ArgumentParser(description="Strict Voice Synthesis Engine")
+    parser.add_argument("--video_id", required=True)
+    parser.add_argument("--script", required=True)
+    parser.add_argument("--speaker_wav", default="saem_voice_sample.wav")
+    parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     seed = get_deterministic_seed(args.video_id)
     raw_wav = args.output + ".raw.wav"
-
-    # --- ENFORCE ABSOLUTE PATH TO VOICE SAMPLE ---
     abs_speaker_wav = os.path.abspath(args.speaker_wav)
 
     if not os.path.exists(abs_speaker_wav):
-        # GitHub Actions workflow command annotation for missing file
-        print(f"::error file=generate_audio.py,title=Missing Voice Sample::Reference audio '{args.speaker_wav}' not found at {abs_speaker_wav}!")
+        print(f"::error file=generate_audio.py,title=Missing Voice Sample::'{args.speaker_wav}' not found at {abs_speaker_wav}!")
         sys.exit(1)
-
-    print(f"::notice file=generate_audio.py,title=Voice Cloning Active::Cloning authentic male voice from: {abs_speaker_wav}")
 
     try:
         import torch
@@ -54,10 +48,9 @@ def main():
         torch.manual_seed(seed)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        print(f"[INFO] Initializing XTTS-v2 on {device.upper()}...")
+        print(f"[INFO] Initializing XTTS-v2 on {device.upper()} using your voice sample...")
         tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 
-        # Synthesize strictly using your voice sample
         tts.tts_to_file(
             text=args.script,
             speaker_wav=abs_speaker_wav,
@@ -70,19 +63,18 @@ def main():
             enable_text_splitting=True
         )
     except Exception as e:
-        print(f"::error file=generate_audio.py,title=XTTS-v2 Failure::Voice cloning crashed: {e}")
+        print(f"::error file=generate_audio.py,title=XTTS-v2 Failed::Voice cloning error: {e}")
         sys.exit(1)
 
     if not os.path.exists(raw_wav):
-        print(f"::error file=generate_audio.py,title=Synthesis Failed::Audio file was not generated for {args.video_id}")
+        print(f"::error file=generate_audio.py,title=Fatal::Audio output missing.")
         sys.exit(1)
 
     process_and_normalize_wav(raw_wav, args.output)
-    
     if os.path.exists(raw_wav):
         os.remove(raw_wav)
 
-    print(f"[SUCCESS] Audio successfully generated and normalized using your voice: {args.output}")
+    print(f"[SUCCESS] Audio generated with your voice clone: {args.output}")
 
 
 if __name__ == "__main__":
