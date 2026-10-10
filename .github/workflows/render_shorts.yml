@@ -35,9 +35,10 @@ jobs:
         run: |
           set -euo pipefail
           test -f saem_voice_sample.wav || {
-            echo "::error file=saem_voice_sample.wav::Reference voice sample is missing. XTTS is required."
+            echo "::error file=saem_voice_sample.wav::Reference voice sample is missing. XTTS is the ONLY synthesizer."
             exit 1
           }
+          ls -lh saem_voice_sample.wav
 
       - name: Validate CSV & JSON
         id: validate
@@ -142,7 +143,7 @@ jobs:
           {
             echo "# 🎬 Physics Shorts — Production Summary"
             echo ""
-            echo "**Status:** $COUNT video(s),$SIZE total"
+            echo "**Status:** $COUNT video(s) · $SIZE total"
             echo ""
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$COUNT" -gt 0 ]; then
@@ -151,11 +152,12 @@ jobs:
               echo "| :--- | :---: |"
             } >> "$GITHUB_STEP_SUMMARY"
             find final -name '*.mp4' -printf '%f\t%s\n' | while IFS=$'\t' read -r f b; do
-              MB=$(awk "BEGIN {printf \"\%.2f\", $b/1048576}")
+              MB=$(awk "BEGIN {printf \"%.2f\", $b/1048576}")
               echo "| \`$f\` | **${MB} MB** |" >> "$GITHUB_STEP_SUMMARY"
             done
           else
             echo "_No videos were produced in this run._" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Empty Bundle::No MP4 files were produced."
           fi
 
       - name: Upload final bundle
