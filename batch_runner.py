@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Parallel Shard Batch Runner.
-Automatically locates Manim video output, combines with voiceover audio via FFmpeg,
-and outputs final vertical shorts into the dist directory for artifact upload.
+Compiles Manim animations, synthesizes voiceovers, and muxes video/audio via FFmpeg.
 """
 
 import argparse
@@ -27,7 +26,7 @@ def run_job(row: dict, output_dir: str):
     audio_wav = os.path.join(output_dir, f"{video_id}_audio.wav")
     final_output_mp4 = os.path.join(output_dir, f"{video_id}.mp4")
     
-    # 1. Generate Voiceover using your voice clone
+    # 1. Generate Voiceover
     audio_cmd = [
         sys.executable, "generate_audio.py",
         "--video_id", video_id,
@@ -50,17 +49,16 @@ def run_job(row: dict, output_dir: str):
     ]
     subprocess.run(manim_cmd, env=env, check=True)
 
-    # 3. Locate Manim's raw rendered video output
+    # 3. Locate Manim's rendered output file
     search_pattern = os.path.join("media", "videos", "**", "*.mp4")
     rendered_files = glob.glob(search_pattern, recursive=True)
     
     if not rendered_files:
         raise FileNotFoundError(f"Manim failed to generate any output mp4 files for {video_id}")
 
-    # Get the most recently modified mp4 file from Manim output
     latest_video = max(rendered_files, key=os.path.getmtime)
 
-    # 4. Combine Manim silent video with generated voice audio using FFmpeg
+    # 4. Mux Video and Audio via FFmpeg
     ffmpeg_cmd = [
         "ffmpeg", "-y",
         "-i", latest_video,
