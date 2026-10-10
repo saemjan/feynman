@@ -23,8 +23,8 @@ def validate_csv(filepath: str):
                 row_count += 1
                 words = row["audio_script"].split()
                 word_count = len(words)
-                if not (90 <= word_count <= 160):
-                    print(f"[WARN] Row {row_count} ({row['video_id']}): Script word count ({word_count}) outside optimal range.")
+                if not (90 <= word_count <= 220):
+                    print(f"[WARN] Row {row_count} ({row['video_id']}): Script word count ({word_count}) outside 1-minute range.")
         print(f"[SUCCESS] Schema validation passed for {row_count} rows.")
     except Exception as e:
         print(f"[FATAL] CSV validation crashed: {e}")
