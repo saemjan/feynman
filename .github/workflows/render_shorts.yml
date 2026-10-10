@@ -1,4 +1,4 @@
-name: Automated Vertical Physics Shorts Pipeline
+name: Elite Feynman Physics Shorts Pipeline
 
 on:
   push:
@@ -23,14 +23,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Validate CSV & JSON Specs
+      - name: Validate CSV & Schema Specs
         id: validate
         run: |
           python schema_validator.py content_batch.csv
           COUNT=$(python -c "import csv; print(len(list(csv.reader(open('content_batch.csv'))))-1)")
           echo "job_count=$COUNT" >> "$GITHUB_OUTPUT"
           echo "### Pre-flight Checklist Passed :rocket:" >> "$GITHUB_STEP_SUMMARY"
-          echo "Validated $COUNT physics short specifications." >> "$GITHUB_STEP_SUMMARY"
+          echo "Validated $COUNT rigorous physics specifications." >> "$GITHUB_STEP_SUMMARY"
 
   render:
     name: Parallel Render Worker
@@ -57,7 +57,7 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install PyTorch & Neural Audio Libraries
+      - name: Install PyTorch & Dependencies
         run: |
           echo "::group::Installing Python Dependencies"
           python -m pip install --upgrade "pip<24.1"
