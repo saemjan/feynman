@@ -11,6 +11,8 @@ X_MIN, X_MAX = -3.5, 3.5
 Y_MIN, Y_MAX = -2.2, 1.8
 WORD_MIN, WORD_MAX = 70, 200
 
+KNOWN_BEATS = {"hook", "analogy", "experiment", "law", "emphasis", "punchline"}
+
 
 def safe_json_loads(val_str: str):
     if not val_str or val_str.strip() in ('""', ""):
@@ -65,7 +67,8 @@ def validate_csv(path: str) -> bool:
                 print(f"[WARN] Row {row_idx} ({vid}): {len(words)} words "
                       f"(want {WORD_MIN}-{WORD_MAX}).")
 
-            for col_name, col_idx in (("equations_json", 10), ("visual_data_json", 11)):
+            for col_name, col_idx in (("equations_json", 10),
+                                      ("visual_data_json", 11)):
                 try:
                     parsed = safe_json_loads(row[col_idx].strip())
                     if not isinstance(parsed, list):
@@ -80,16 +83,29 @@ def validate_csv(path: str) -> bool:
                     print(f"[ERROR] Row {row_idx} ({vid}): {col_name} — {e}")
                     has_errors = True
 
+            # Optional beats_json (column 14, index 13)
             if len(row) > 13 and row[13].strip():
                 try:
                     beats = safe_json_loads(row[13].strip())
                     if not isinstance(beats, list):
                         print(f"[ERROR] Row {row_idx} ({vid}): beats_json not a list.")
                         has_errors = True
+                    else:
+                        for b in beats:
+                            if not isinstance(b, dict):
+                                continue
+                            if "t" not in b or not isinstance(b["t"], (int, float)):
+                                print(f"[WARN] Row {row_idx} ({vid}): "
+                                      f"beat missing numeric 't'")
+                            bt = str(b.get("type", "")).lower()
+                            if bt and bt not in KNOWN_BEATS:
+                                print(f"[WARN] Row {row_idx} ({vid}): "
+                                      f"unknown beat type '{bt}'")
                 except Exception as e:
                     print(f"[ERROR] Row {row_idx} ({vid}): beats_json — {e}")
                     has_errors = True
 
+            # Optional bindings_json (column 15, index 14)
             if len(row) > 14 and row[14].strip():
                 try:
                     binds = safe_json_loads(row[14].strip())
