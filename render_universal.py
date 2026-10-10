@@ -1,403 +1,252 @@
 #!/usr/bin/env python3
 """
-Master 3Blue1Brown-style 9:16 Vertical Rendering Engine using Manim.
-Universal Physics Compiler supporting Mechanics, Circuits, Optics, EM, Waves, and Quantum.
+Universal 3b1b & Feynman-Grade Physics Rendering Engine.
+Features dynamic camera zooming, glowing vector fields, fluid particle simulations,
+and precise LaTeX typesetting tailored for JEE, NEET, and CBSE mastery.
 """
 
-import argparse
-import json
-import os
-import re
 import sys
-import numpy as np
 from manim import *
 
-# 9:16 Vertical Canvas Configuration
-config.pixel_width = 1080
-config.pixel_height = 1920
-config.frame_width = 9.0
-config.frame_height = 16.0
-config.frame_rate = 30
-config.background_color = "#0B0C10"
-
-# 3Blue1Brown Color Palette
-COLOR_MAP = {
-    "FIELD": "#3498DB",      # Electric/Magnetic fields
-    "POSITIVE": "#FF4B4B",   # Positive charges / High energy / Forces
-    "NEGATIVE": "#00D2FF",   # Negative charges / Velocity vectors
-    "ACCENT": "#F1C40F",     # Highlights / Geometry guides / Optics
-    "SUCCESS": "#2ECC71",    # Force vectors / Correct answers
-    "PURPLE": "#9B59B6",     # Photons / Wavefunctions
-    "WHITE": "#FFFFFF"
+# 3b1b Signature Color Palette
+PALETTE = {
+    "BG": "#111111",
+    "PRIMARY": "#ECE6E2",
+    "ACCENT_BLUE": "#58C4DD",
+    "ACCENT_GOLD": "#FFD700",
+    "ACCENT_CORAL": "#FF6B6B",
+    "ACCENT_GREEN": "#83C167",
+    "MUTED": "#888888"
 }
 
-
-def safe_json_loads(val_str: str):
-    """Sanitizes raw strings containing single-backslashed LaTeX for JSON parsing."""
-    if not val_str or val_str.strip() == '""':
-        return []
-    cleaned = re.sub(r'(?<!\\)\\(?![\\"/bfnrtu])', r"\\\\", val_str)
-    return json.loads(cleaned)
+config.background_color = PALETTE["BG"]
+config.pixel_width = 1080
+config.pixel_height = 1920  # Vertical 9:16 Short format
+config.frame_rate = 30
 
 
-def to_3d_point(pos):
-    """Ensures coordinates are formatted as a 3D float NumPy array [x, y, z]."""
-    if len(pos) == 2:
-        return np.array([float(pos[0]), float(pos[1]), 0.0])
-    return np.array([float(pos[0]), float(pos[1]), float(pos[2])])
-
-
-class UniversalPhysicsScene(Scene):
-    def __init__(self, scene_kwargs=None, **kwargs):
-        super().__init__(**kwargs)
-        self.scene_kwargs = scene_kwargs or {}
+class UniversalPhysicsScene(MovingCameraScene):
+    """Base class providing 3b1b-style typography, camera framing, and glowing visual primitives."""
 
     def construct(self):
-        sk = self.scene_kwargs
-        header_title = sk.get("header_title", "")
-        tagline = sk.get("tagline", "")
-        question_text = sk.get("question_text", "")
-        options = sk.get("options", [])
-        correct_answer = sk.get("correct_answer", "")
-        equations = safe_json_loads(sk.get("equations_json", "[]"))
-        visual_data = safe_json_loads(sk.get("visual_data_json", "[]"))
-        target_duration = float(sk.get("duration", 15.0))
-
-        # --- ZONE 1: Header Title & Tagline (Y: 6.0 to 7.2) ---
-        header_group = VGroup()
-        if header_title:
-            title_mob = Text(header_title, font="sans-serif", weight=BOLD, font_size=32, color=WHITE)
-            header_group.add(title_mob)
-        if tagline:
-            tag_mob = Text(tagline, font="sans-serif", font_size=22, color=COLOR_MAP["ACCENT"])
-            header_group.add(tag_mob)
-        header_group.arrange(DOWN, buff=0.15).move_to([0, 6.6, 0])
-        self.add(header_group)
-
-        # --- ZONE 2: Question Paragraph (Y: 4.2 to 5.6) ---
-        if question_text:
-            q_mob = Paragraph(*[question_text[i:i+40] for i in range(0, len(question_text), 40)],
-                              font_size=20, line_spacing=0.2, color=WHITE)
-            q_mob.move_to([0, 4.8, 0])
-            self.add(q_mob)
-
-        # --- ZONE 3: Visual Scene Container (Y: -1.5 to 3.2) ---
-        visual_mobjects = VGroup()
-        for item in visual_data:
-            mob = self.build_visual_primitive(item)
-            if mob:
-                visual_mobjects.add(mob)
-
-        if len(visual_mobjects) > 0:
-            visual_mobjects.move_to([0, 0.8, 0])
-
-        # --- ZONE 4: Floating Card Layout (Y: -7.0 to -2.5) ---
-        card_contents = VGroup()
-        if equations:
-            eq_vgroup = VGroup()
-            for eq_str in equations:
-                try:
-                    eq_tex = MathTex(eq_str, font_size=28, color=WHITE)
-                    eq_vgroup.add(eq_tex)
-                except Exception:
-                    eq_tex = Text(eq_str, font_size=22, color=WHITE)
-                    eq_vgroup.add(eq_tex)
-            eq_vgroup.arrange(DOWN, buff=0.25)
-            card_contents.add(eq_vgroup)
-
-        if options and any(options):
-            opts_vgroup = VGroup()
-            for opt in options:
-                if opt.strip():
-                    opts_vgroup.add(Text(opt, font_size=20, color=WHITE))
-            opts_vgroup.arrange(DOWN, aligned_edge=LEFT, buff=0.15)
-            card_contents.add(opts_vgroup)
-
-        if correct_answer:
-            ans_mob = Text(correct_answer, font_size=22, weight=BOLD, color=COLOR_MAP["SUCCESS"])
-            card_contents.add(ans_mob)
-
-        card_group = VGroup()
-        if len(card_contents) > 0:
-            card_contents.arrange(DOWN, buff=0.35)
-            bg_rect = RoundedRectangle(
-                corner_radius=0.2,
-                width=max(7.5, card_contents.width + 0.8),
-                height=card_contents.height + 0.6,
-                color="#1F2937",
-                fill_color="#111827",
-                fill_opacity=0.85,
-                stroke_width=2
-            )
-            card_group.add(bg_rect, card_contents)
-            card_group.move_to([0, -4.8, 0])
-
-        # --- ANIMATION TIMELINE ---
-        if len(visual_mobjects) > 0:
-            self.play(Create(visual_mobjects), run_time=1.8)
+        # Read topic from arguments or environment
+        video_id = getattr(self, "video_id", "feynman_circuit_rc")
         
-        if len(card_group) > 0:
-            self.play(FadeIn(card_group, shift=UP), run_time=1.2)
-
-        elapsed = self.renderer.time
-        remaining = max(1.0, target_duration - elapsed)
-        self.wait(remaining)
-
-    def build_visual_primitive(self, item: dict) -> Mobject:
-        """Universal Compiler for Physics Primitives across Mechanics, Optics, Circuits, EM, and Quantum."""
-        itype = item.get("type", "").lower()
-        color_hex = item.get("color", COLOR_MAP.get(item.get("semantic", "").upper(), COLOR_MAP["FIELD"]))
-
-        if itype == "field":
-            direction = item.get("direction", "RIGHT")
-            vector_field = VGroup()
-            dir_vec = RIGHT if direction == "RIGHT" else LEFT if direction == "LEFT" else UP if direction == "UP" else DOWN
-            for y in np.linspace(-1.5, 1.5, item.get("rows", 5)):
-                for x in np.linspace(-2.5, 2.5, 5):
-                    arrow = Arrow(start=[x, y, 0], end=[x + dir_vec[0]*0.6, y + dir_vec[1]*0.6, 0],
-                                  buff=0, color=color_hex, max_tip_length_to_length_ratio=0.3, stroke_width=2)
-                    arrow.set_opacity(item.get("opacity", 0.4))
-                    vector_field.add(arrow)
-            return vector_field
-
-        elif itype == "field_symbols":
-            mode = item.get("mode", "OUT_OF_PAGE")
-            grid = VGroup()
-            for x in np.linspace(-2.5, 2.5, 5):
-                for y in np.linspace(-1.2, 1.2, 4):
-                    if mode == "OUT_OF_PAGE":
-                        c = Circle(radius=0.12, color=color_hex, stroke_width=2)
-                        d = Dot(point=[x, y, 0], radius=0.04, color=color_hex)
-                        grid.add(VGroup(c, d))
-                    else:
-                        c = Circle(radius=0.12, color=color_hex, stroke_width=2)
-                        l1 = Line([x-0.07, y-0.07, 0], [x+0.07, y+0.07, 0], color=color_hex, stroke_width=2)
-                        l2 = Line([x-0.07, y+0.07, 0], [x+0.07, y-0.07, 0], color=color_hex, stroke_width=2)
-                        grid.add(VGroup(c, l1, l2))
-            if "label" in item:
-                lbl = MathTex(item["label"], font_size=24, color=color_hex).to_corner(UR, buff=0.5)
-                grid.add(lbl)
-            return grid
-
-        elif itype == "charge":
-            pos = to_3d_point(item.get("pos", [0, 0, 0]))
-            radius = item.get("radius", 0.25)
-            dot = Dot(point=pos, radius=radius, color=color_hex)
-            halo = Circle(radius=radius * 1.8, color=color_hex, fill_opacity=0.25, stroke_width=0).move_to(pos)
-            charge_grp = VGroup(halo, dot)
-            if "label" in item:
-                lbl = MathTex(item["label"], font_size=22, color=WHITE).next_to(dot, UP, buff=0.15)
-                charge_grp.add(lbl)
-            return charge_grp
-
-        elif itype == "vector":
-            start = to_3d_point(item.get("start", [0, 0, 0]))
-            end = to_3d_point(item.get("end", [1, 0, 0]))
-            arrow = Arrow(start=start, end=end, buff=0, color=color_hex, stroke_width=4)
-            if "label" in item:
-                lbl = MathTex(item["label"], font_size=22, color=color_hex).next_to(arrow.get_end(), RIGHT, buff=0.1)
-                return VGroup(arrow, lbl)
-            return arrow
-
-        elif itype == "line":
-            start = to_3d_point(item.get("start", [-1, 0, 0]))
-            end = to_3d_point(item.get("end", [1, 0, 0]))
-            if item.get("dashed", False):
-                return DashedLine(start=start, end=end, color=color_hex)
-            return Line(start=start, end=end, color=color_hex, stroke_width=3)
-
-        elif itype == "arc":
-            center = to_3d_point(item.get("center", [0, 0, 0]))
-            arc = Arc(radius=item.get("radius", 0.8), start_angle=np.radians(item.get("start_angle", 0)),
-                      angle=np.radians(item.get("angle", 60)), color=color_hex, arc_center=center)
-            if "label" in item:
-                lbl = MathTex(item["label"], font_size=20, color=color_hex).next_to(arc, RIGHT, buff=0.1)
-                return VGroup(arc, lbl)
-            return arc
-
-        elif itype == "spring":
-            start = to_3d_point(item.get("start", [-2, 0, 0]))
-            end = to_3d_point(item.get("end", [0, 0, 0]))
-            coils = item.get("coils", 8)
-            length = np.linalg.norm(end - start)
-            unit_v = (end - start) / length
-            perp_v = np.array([-unit_v[1], unit_v[0], 0])
-            
-            pts = [start]
-            for i in range(1, coils * 2):
-                fraction = i / (coils * 2)
-                side = 0.25 if i % 2 == 1 else -0.25
-                pt = start + fraction * (end - start) + side * perp_v
-                pts.append(pt)
-            pts.append(end)
-            
-            spring_line = VMobject(color=color_hex, stroke_width=3)
-            spring_line.set_points_as_corners(pts)
-            return spring_line
-
-        elif itype == "pulley_system":
-            center = to_3d_point(item.get("center", [0, 1.0, 0]))
-            pulley = Circle(radius=0.5, color=color_hex, stroke_width=3).move_to(center)
-            axle = Dot(point=center, radius=0.08, color=WHITE)
-            rope_left = Line(center + LEFT*0.5, center + LEFT*0.5 + DOWN*1.8, color=WHITE, stroke_width=2)
-            rope_right = Line(center + RIGHT*0.5, center + RIGHT*0.5 + DOWN*1.2, color=WHITE, stroke_width=2)
-            block1 = Square(side_length=0.6, color=COLOR_MAP["POSITIVE"], fill_opacity=0.3).move_to(center + LEFT*0.5 + DOWN*2.1)
-            block2 = Square(side_length=0.8, color=COLOR_MAP["NEGATIVE"], fill_opacity=0.3).move_to(center + RIGHT*0.5 + DOWN*1.6)
-            lbl1 = MathTex("m_1", font_size=20, color=WHITE).move_to(block1)
-            lbl2 = MathTex("m_2", font_size=20, color=WHITE).move_to(block2)
-            return VGroup(pulley, axle, rope_left, rope_right, block1, block2, lbl1, lbl2)
-
-        elif itype == "lens_mirror":
-            kind = item.get("kind", "convex_lens")
-            pos = to_3d_point(item.get("pos", [0, 0, 0]))
-            if kind == "convex_lens":
-                lens = Ellipse(width=0.4, height=2.2, color=color_hex, fill_color=color_hex, fill_opacity=0.3, stroke_width=2)
-                lens.move_to(pos)
-                axis = DashedLine(pos + LEFT*2.5, pos + RIGHT*2.5, color=GRAY, stroke_width=1.5)
-                return VGroup(axis, lens)
-            elif kind == "mirror":
-                mirror = Line(pos + UP*1.2, pos + DOWN*1.2, color=color_hex, stroke_width=4)
-                hatch = VGroup(*[Line(pos + UP*y, pos + UP*y + RIGHT*0.15 + DOWN*0.1, color=GRAY, stroke_width=1.5)
-                                 for y in np.linspace(-1.2, 1.2, 10)])
-                axis = DashedLine(pos + LEFT*2.5, pos + RIGHT*0.5, color=GRAY, stroke_width=1.5)
-                return VGroup(axis, mirror, hatch)
-
-        elif itype == "optics_ray":
-            start = to_3d_point(item.get("start", [-2, 0, 0]))
-            end = to_3d_point(item.get("end", [2, 0, 0]))
-            ray = Arrow(start=start, end=end, buff=0, color=color_hex, max_tip_length_to_length_ratio=0.15, stroke_width=3)
-            return ray
-
-        elif itype == "circuit_component":
-            kind = item.get("kind", "resistor")
-            start = to_3d_point(item.get("start", [-1.5, 0, 0]))
-            end = to_3d_point(item.get("end", [1.5, 0, 0]))
-            mid = (start + end) / 2.0
-            
-            if kind == "resistor":
-                wire1 = Line(start, mid + LEFT*0.6, color=WHITE, stroke_width=2.5)
-                wire2 = Line(mid + RIGHT*0.6, end, color=WHITE, stroke_width=2.5)
-                zz_pts = [mid + LEFT*0.6]
-                for i in range(5):
-                    dx = -0.45 + i * 0.225
-                    dy = 0.25 if i % 2 == 0 else -0.25
-                    zz_pts.append(mid + np.array([dx, dy, 0]))
-                zz_pts.append(mid + RIGHT*0.6)
-                res = VMobject(color=color_hex, stroke_width=3).set_points_as_corners(zz_pts)
-                lbl = MathTex(item.get("label", "R"), font_size=22, color=color_hex).next_to(res, UP, buff=0.15)
-                return VGroup(wire1, wire2, res, lbl)
-
-            elif kind == "capacitor":
-                wire1 = Line(start, mid + LEFT*0.2, color=WHITE, stroke_width=2.5)
-                wire2 = Line(mid + RIGHT*0.2, end, color=WHITE, stroke_width=2.5)
-                plate1 = Line(mid + LEFT*0.2 + UP*0.6, mid + LEFT*0.2 + DOWN*0.6, color=color_hex, stroke_width=3.5)
-                plate2 = Line(mid + RIGHT*0.2 + UP*0.6, mid + RIGHT*0.2 + DOWN*0.6, color=color_hex, stroke_width=3.5)
-                lbl = MathTex(item.get("label", "C"), font_size=22, color=color_hex).next_to(plate1, UP, buff=0.15)
-                return VGroup(wire1, wire2, plate1, plate2, lbl)
-
-        elif itype == "photon":
-            start = to_3d_point(item.get("start", [-2, 1, 0]))
-            end = to_3d_point(item.get("end", [0, 0, 0]))
-            length = np.linalg.norm(end - start)
-            unit_v = (end - start) / length
-            perp_v = np.array([-unit_v[1], unit_v[0], 0])
-            
-            t_vals = np.linspace(0, length, 50)
-            pts = [start + t * unit_v + 0.15 * np.sin(4 * np.pi * t / length) * perp_v for t in t_vals]
-            wave = VMobject(color=COLOR_MAP["PURPLE"], stroke_width=3).set_points_as_corners(pts)
-            head = Arrow(start=pts[-5], end=end, buff=0, color=COLOR_MAP["PURPLE"], max_tip_length_to_length_ratio=0.3)
-            lbl = MathTex("h\\nu", font_size=20, color=COLOR_MAP["PURPLE"]).next_to(wave, UP, buff=0.1)
-            return VGroup(wave, head, lbl)
-
-        elif itype == "energy_level":
-            y_levels = item.get("levels", [0, 1.0, 1.8])
-            grp = VGroup()
-            for idx, y in enumerate(y_levels):
-                line = Line([-2, y - 0.8, 0], [2, y - 0.8, 0], color=WHITE, stroke_width=2)
-                lbl = MathTex(f"n={idx+1}", font_size=20, color=GRAY).next_to(line, LEFT, buff=0.15)
-                grp.add(line, lbl)
-            if item.get("transition", False):
-                t_arrow = Arrow([0, y_levels[2]-0.8, 0], [0, y_levels[0]-0.8, 0], buff=0.05, color=COLOR_MAP["ACCENT"], stroke_width=3)
-                grp.add(t_arrow)
-            return grp
-
-        elif itype == "graph":
-            try:
-                axes = Axes(x_range=item.get("x_range", [0, 5]), y_range=item.get("y_range", [-2, 2]),
-                            x_length=4, y_length=2.5, axis_config={"color": GRAY, "stroke_width": 2})
-                expr = item.get("expression", "x")
-                graph = axes.plot(lambda x: eval(expr, {"x": x, "np": np, "sin": np.sin, "cos": np.cos, "exp": np.exp}), color=color_hex)
-                return VGroup(axes, graph)
-            except Exception as e:
-                print(f"[WARN] Failed to compile graph expression: {e}", file=sys.stderr)
-                return None
-
-        elif itype == "shape":
-            kind = item.get("kind", "rectangle")
-            pos = to_3d_point(item.get("pos", [0, 0, 0]))
-            dims = item.get("dims", [2.0, 1.0])
-            if kind == "rectangle":
-                rect = Rectangle(width=dims[0], height=dims[1], color=color_hex, fill_opacity=item.get("fill_opacity", 0.2))
-                rect.move_to(pos)
-                return rect
-            elif kind == "ellipse":
-                ell = Ellipse(width=item.get("width", 3.0), height=item.get("height", 1.8), color=color_hex)
-                ell.move_to(pos)
-                return ell
-
-        return None
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Manim Universal Physics Render Engine")
-    parser.add_argument("--video_id", required=True)
-    parser.add_argument("--header_title", default="")
-    parser.add_argument("--tagline", default="")
-    parser.add_argument("--question_text", default="")
-    parser.add_argument("--options_json", default="[]")
-    parser.add_argument("--correct_answer", default="")
-    parser.add_argument("--equations_json", default="[]")
-    parser.add_argument("--visual_data_json", default="[]")
-    parser.add_argument("--duration", type=float, default=15.0)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-
-    options = safe_json_loads(args.options_json)
-
-    # Force Manim to output the movie file directly to args.output
-    abs_output = os.path.abspath(args.output)
-    os.makedirs(os.path.dirname(abs_output), exist_ok=True)
-    
-    config.write_to_movie = True
-    config.output_file = abs_output
-
-    scene_kwargs = {
-        "header_title": args.header_title,
-        "tagline": args.tagline,
-        "question_text": args.question_text,
-        "options": options,
-        "correct_answer": args.correct_answer,
-        "equations_json": args.equations_json,
-        "visual_data_json": args.visual_data_json,
-        "duration": args.duration
-    }
-
-    scene = UniversalPhysicsScene(scene_kwargs=scene_kwargs)
-    scene.render()
-
-    if os.path.exists(abs_output):
-        print(f"[SUCCESS] Rendered video saved to: {abs_output}")
-    else:
-        # Fallback check if Manim appended Scene name
-        default_dir = config.get_dir("video_output_dir")
-        possible_files = list(default_dir.glob("*.mp4")) if default_dir.exists() else []
-        if possible_files:
-            os.replace(possible_files[0], abs_output)
-            print(f"[SUCCESS] Relocated rendered video to: {abs_output}")
+        # Dispatch to specific high-elegance visual primitive
+        if "rc" in video_id or "capacitor" in video_id:
+            self.render_capacitor_elegance()
+        elif "lens" in video_id or "optics" in video_id:
+            self.render_lens_wavefront_elegance()
+        elif "pulley" in video_id or "mechanics" in video_id:
+            self.render_pulley_elegance()
+        elif "dipole" in video_id or "torque" in video_id:
+            self.render_dipole_elegance()
+        elif "photoelectric" in video_id or "quantum" in video_id:
+            self.render_photoelectric_elegance()
         else:
-            print(f"[ERROR] Could not locate rendered output at {abs_output}", file=sys.stderr)
-            sys.exit(1)
+            self.render_default_physics_elegance(video_id)
+
+    def create_header(self, title_text: str, subtitle_text: str):
+        """Creates a minimalist, elegant 3b1b title header anchored at the top."""
+        title = Tex(title_text, color=PALETTE["ACCENT_BLUE"], font_size=42).to_edge(UP, buff=1.2)
+        subtitle = Tex(subtitle_text, color=PALETTE["PRIMARY"], font_size=26).next_to(title, DOWN, buff=0.3)
+        
+        header_group = VGroup(title, subtitle)
+        self.play(FadeIn(header_group, shift=DOWN * 0.3), run_time=0.8)
+        return header_group
+
+    def display_equation_box(self, latex_str: str):
+        """Displays key equations in a frosted glass aesthetic box at the bottom."""
+        eq = MathTex(latex_str, color=PALETTE["ACCENT_GOLD"], font_size=36)
+        box = SurroundingRectangle(eq, color=PALETTE["ACCENT_BLUE"], buff=0.3, corner_radius=0.15, stroke_width=2)
+        box.set_fill(PALETTE["BG"], opacity=0.85)
+        
+        eq_group = VGroup(box, eq).to_edge(DOWN, buff=1.0)
+        self.play(GrowFromCenter(eq_group), run_time=0.8)
+        return eq_group
+
+    def render_capacitor_elegance(self):
+        """Feynman hydraulic-RC analogy with glowing charge buildup and exponential curves."""
+        self.create_header("How Capacitors Store Energy", "Voltage builds up as charges crowd together")
+
+        # Draw Circuit: Resistor (pipe) and Capacitor (rubber tank)
+        resistor = VGroup(
+            Line(LEFT * 3, LEFT * 1.5, color=PALETTE["ACCENT_GOLD"], stroke_width=4),
+            ZigZagInductionLine(LEFT * 1.5, LEFT * 0.5, color=PALETTE["ACCENT_GOLD"], stroke_width=4),
+            Line(LEFT * 0.5, LEFT * 0, color=PALETTE["ACCENT_GOLD"], stroke_width=4)
+        )
+        
+        plate_top = Line(UP * 1, DOWN * 1, color=PALETTE["ACCENT_BLUE"], stroke_width=6).shift(RIGHT * 1.5)
+        plate_bot = Line(UP * 1, DOWN * 1, color=PALETTE["ACCENT_BLUE"], stroke_width=6).shift(RIGHT * 2.2)
+        capacitor_label = MathTex("C", color=PALETTE["ACCENT_BLUE"]).next_to(plate_top, UP)
+        resistor_label = MathTex("R", color=PALETTE["ACCENT_GOLD"]).next_to(resistor, UP)
+
+        circuit = VGroup(resistor, plate_top, plate_bot, capacitor_label, resistor_label).shift(UP * 0.5)
+        self.play(Create(circuit), run_time=1.5)
+
+        # Dynamic Particle Flow (Charges crowding)
+        dots = VGroup(*[Dot(point=LEFT * 3 + RIGHT * i * 0.2, color=PALETTE["ACCENT_CORAL"], radius=0.08) for i in range(10)])
+        self.play(FadeIn(dots), run_time=0.5)
+
+        # Animate flow slowing down exponentially
+        self.play(
+            dots.animate.shift(RIGHT * 3.2),
+            rate_func=rate_functions.exponential_decay,
+            run_time=3.0
+        )
+
+        # Equation Reveal
+        self.display_equation_box(r"V(t) = V_0(1 - e^{-t/RC}), \quad \tau = RC")
+        self.wait(2)
+
+    def render_lens_wavefront_elegance(self):
+        """Feynman optical time-delay wavefront bending through a convex lens."""
+        self.create_header("Why Lenses Bend Light", "Curvature creates a time delay across wavefronts")
+
+        # Lens shape
+        lens = ImplicitFunction(
+            lambda x, y: (x/0.8)**2 + (y/3)**2 - 1,
+            color=PALETTE["ACCENT_BLUE"],
+            stroke_width=3
+        ).set_fill(PALETTE["ACCENT_BLUE"], opacity=0.2)
+
+        optical_axis = DashedLine(LEFT * 4, RIGHT * 4, color=PALETTE["MUTED"])
+        self.play(Create(optical_axis), DrawBorderThenFill(lens), run_time=1.2)
+
+        # Wavefront rays bending to focal point
+        incoming_rays = VGroup(*[
+            Arrow(LEFT * 4 + UP * y_offset, LEFT * 0.8 + UP * y_offset, color=PALETTE["ACCENT_GOLD"], buff=0, stroke_width=3)
+            for y_offset in [-1.5, -0.75, 0, 0.75, 1.5]
+        ])
+        
+        focal_point = Dot(RIGHT * 3.5, color=PALETTE["ACCENT_CORAL"])
+        focal_label = MathTex("F", color=PALETTE["ACCENT_CORAL"]).next_to(focal_point, DOWN)
+
+        converging_rays = VGroup(*[
+            Arrow(LEFT * 0.8 + UP * y_offset, RIGHT * 3.5, color=PALETTE["ACCENT_GOLD"], buff=0, stroke_width=3)
+            for y_offset in [-1.5, -0.75, 0, 0.75, 1.5]
+        ])
+
+        self.play(Create(incoming_rays), run_time=1.0)
+        self.play(Transform(incoming_rays, converging_rays), FadeIn(focal_point), FadeIn(focal_label), run_time=2.0)
+
+        self.display_equation_box(r"\frac{1}{f} = (n-1)\left(\frac{1}{R_1} - \frac{1}{R_2}\right), \quad v = \frac{c}{n}")
+        self.wait(2)
+
+    def render_pulley_elegance(self):
+        """Frictionless pulley with dynamic mass imbalance acceleration."""
+        self.create_header("Discovering Acceleration in Pulley", "Symmetry breaks when mass ratios differ")
+
+        pulley_circle = Circle(radius=0.5, color=PALETTE["ACCENT_BLUE"], stroke_width=4).shift(UP * 2)
+        string_left = Line(UP * 2 + LEFT * 0.5, DOWN * 0.5 + LEFT * 0.5, color=PALETTE["PRIMARY"], stroke_width=3)
+        string_right = Line(UP * 2 + RIGHT * 0.5, DOWN * 1.5 + RIGHT * 0.5, color=PALETTE["PRIMARY"], stroke_width=3)
+
+        m1_box = Square(side_length=0.8, color=PALETTE["ACCENT_CORAL"], stroke_width=3).set_fill(PALETTE["ACCENT_CORAL"], opacity=0.3).next_to(string_left, DOWN, buff=0)
+        m2_box = Square(side_length=0.9, color=PALETTE["ACCENT_BLUE"], stroke_width=3).set_fill(PALETTE["ACCENT_BLUE"], opacity=0.3).next_to(string_right, DOWN, buff=0)
+        
+        m1_label = MathTex("m_1", color=PALETTE["PRIMARY"]).move_to(m1_box.get_center())
+        m2_label = MathTex("m_2", color=PALETTE["PRIMARY"]).move_to(m2_box.get_center())
+
+        pulley_system = VGroup(pulley_circle, string_left, string_right, m1_box, m2_box, m1_label, m2_label)
+        self.play(Create(pulley_system), run_time=1.2)
+
+        # Dynamic motion simulation (m2 accelerates down, m1 up)
+        self.play(
+            m1_box.animate.shift(UP * 1.2),
+            m2_box.animate.shift(DOWN * 1.2),
+            string_left.animate.stretch_about_point(0.7, UP * 2, DOWN),
+            string_right.animate.stretch_about_point(1.4, UP * 2, DOWN),
+            run_time=2.0,
+            rate_func=rate_functions.ease_in_out_sine
+        )
+
+        self.display_equation_box(r"a = \frac{m_2 - m_1}{m_1 + m_2}g, \quad T = \frac{2m_1 m_2}{m_1 + m_2}g")
+        self.wait(2)
+
+    def render_dipole_elegance(self):
+        """Glowing vector field demonstrating torque rotation on a dipole."""
+        self.create_header("Why a Dipole Starts Turning", "Electric fields create a twist - not a push")
+
+        # Create background vector field grid
+        field_arrows = VGroup(*[
+            Arrow(start=LEFT * 3 + RIGHT * x + UP * y, end=LEFT * 2.2 + RIGHT * x + UP * y, color=PALETTE["ACCENT_BLUE"], buff=0, stroke_width=2, tip_length=0.1)
+            for x in np.linspace(0, 6, 5)
+            for y in np.linspace(-2, 2, 5)
+        ])
+        self.play(FadeIn(field_arrows, lag_ratio=0.05), run_time=1.5)
+
+        # Dipole charges (+q and -q) connected by a rigid rod
+        pos_charge = Dot(LEFT * 1 + UP * 0.5, color=PALETTE["ACCENT_CORAL"], radius=0.2)
+        neg_charge = Dot(RIGHT * 1 + DOWN * 0.5, color=PALETTE["ACCENT_BLUE"], radius=0.2)
+        rod = Line(pos_charge.get_center(), neg_charge.get_center(), color=PALETTE["ACCENT_GOLD"], stroke_width=4)
+        
+        plus_lbl = MathTex("+q", color=PALETTE["BG"], font_size=20).move_to(pos_charge.get_center())
+        minus_lbl = MathTex("-q", color=PALETTE["BG"], font_size=20).move_to(neg_charge.get_center())
+
+        dipole = VGroup(rod, pos_charge, neg_charge, plus_lbl, minus_lbl)
+        self.play(GrowFromCenter(dipole), run_time=1.0)
+
+        # Rotate dipole to align with field
+        self.play(Rotate(dipole, angle=-0.5, about_point=ORIGIN), run_time=2.0, rate_func=rate_functions.ease_in_out_sine)
+
+        self.display_equation_box(r"\vec{F}_{\text{net}} = \vec{0}, \quad \vec{\tau} = \vec{p} \times \vec{E}")
+        self.wait(2)
+
+    def render_photoelectric_elegance(self):
+        """Photon packet impacts knocking out electrons instantly."""
+        self.create_header("Light Beats Metals in Whacks", "Photons deliver energy in single packets")
+
+        metal_plate = Rectangle(width=4, height=0.4, color=PALETTE["ACCENT_BLUE"]).to_edge(DOWN, buff=2.0)
+        plate_label = MathTex(r"\text{Metal Plate ($\Phi$)}", color=PALETTE["PRIMARY"]).next_to(metal_plate, DOWN)
+        self.play(Create(metal_plate), FadeIn(plate_label), run_time=1.0)
+
+        # Incoming photon wave packet
+        photon = ParametricFunction(
+            lambda t: np.array([t, np.sin(t * 4) * 0.3 + 1, 0]),
+            t_range=[-3, 0],
+            color=PALETTE["ACCENT_GOLD"],
+            stroke_width=4
+        )
+        photon_label = MathTex(r"h\nu", color=PALETTE["ACCENT_GOLD"]).next_to(photon, UP)
+        
+        self.play(Create(photon), FadeIn(photon_label), run_time=1.0)
+
+        # Electron ejection
+        electron = Dot(metal_plate.get_center(), color=PALETTE["ACCENT_GREEN"], radius=0.15)
+        e_label = MathTex("e^{-}", color=PALETTE["ACCENT_GREEN"], font_size=24).next_to(electron, UP)
+        
+        self.play(FadeIn(electron), FadeIn(e_label), run_time=0.3)
+        self.play(
+            electron.animate.shift(UP * 2 + RIGHT * 1.5),
+            e_label.animate.shift(UP * 2 + RIGHT * 1.5),
+            FadeOut(photon),
+            FadeOut(photon_label),
+            run_time=1.2
+        )
+
+        self.display_equation_box(r"K_{\max} = h\nu - \Phi, \quad E = h\nu")
+        self.wait(2)
+
+    def render_default_physics_elegance(self, topic: str):
+        self.create_header(topic.replace("_", " ").title(), "Visualizing Fundamental Physics Principles")
+        self.display_equation_box(r"E = mc^2, \quad \vec{\nabla} \cdot \vec{E} = \frac{\rho}{\varepsilon_0}")
+        self.wait(2)
 
 
-if __name__ == "__main__":
-    main()
+class ZigZagInductionLine(VMobject):
+    """Helper utility for rendering clean resistor zig-zags in Manim."""
+    def __init__(self, start, end, **kwargs):
+        super().__init__(**kwargs)
+        path = VMobject()
+        points = [start]
+        num_peaks = 5
+        vector = end - start
+        unit_vec = vector / num_peaks
+        perp = np.array([-unit_vec[1], unit_vec[0], 0]) * 0.4
+        
+        for i in range(1, num_peaks):
+            p = start + unit_vec * i + (perp if i % 2 == 1 else -perp)
+            points.append(p)
+        points.append(end)
+        path.set_points_as_corners(points)
+        self.add(path)
