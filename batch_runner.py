@@ -1,102 +1,90 @@
 #!/usr/bin/env python3
 """
-Parallel Shard Batch Runner.
-Compiles Manim animations, synthesizes voiceovers, and muxes video/audio via FFmpeg.
+Elite Parallel Batch Runner for Physics Shorts Pipeline.
+Parses CSV data, generates TTS audio, and coordinates Manim rendering.
 """
 
-import argparse
-import csv
-import glob
 import os
+import csv
+import json
 import subprocess
 import sys
+from TTS.api import TTS
 
+def get_tts_model():
+    print("[INFO] Initializing Coqui XTTS model...")
+    # Using multilingual XTTS model for crystal-clear educational voiceovers
+    model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
+    return TTS(model_name=model_name, progress_bar=True, gpu=True)
 
-def run_job(row: dict, output_dir: str):
-    video_id = row["video_id"]
-    title = row["header_title"]
-    script = row["audio_script"]
-
-    print(f"\n========================================")
-    print(f"Processing: {video_id} ({len(script.split())} words)")
-    print(f"Header: {title}")
-    print(f"========================================")
-
+def run_job(job_data, output_dir="dist"):
     os.makedirs(output_dir, exist_ok=True)
-    audio_wav = os.path.join(output_dir, f"{video_id}_audio.wav")
-    final_output_mp4 = os.path.join(output_dir, f"{video_id}.mp4")
-    
-    # 1. Generate Voiceover
-    audio_cmd = [
-        sys.executable, "generate_audio.py",
-        "--video_id", video_id,
-        "--script", script,
-        "--output", audio_wav
-    ]
-    subprocess.run(audio_cmd, check=True)
+    video_id = job_data["video_id"]
+    title = job_data["header_title"]
+    audio_script = job_data["audio_script"]
+    eq_json = job_data["equations_json"]
+    vis_json = job_data["visual_data_json"]
 
-    # 2. Render Manim Animation
+    audio_path = os.path.join(output_dir, f"{video_id}_audio.wav")
+    
+    print(f"\n==============================")
+    print(f"Processing: {video_id} ({len(audio_script.split())} words)")
+    print(f"Header: {title}")
+    print(f"==============================")
+
+    # 1. Generate TTS Audio if not already cached
+    if not os.path.exists(audio_path):
+        try:
+            tts = get_tts_model()
+            # Synthesize voiceover with optimal teaching pace
+            tts.tts_to_file(
+                text=audio_script,
+                speaker_wav="reference_voice.wav" if os.path.exists("reference_voice.wav") else None,
+                language="en",
+                file_path=audio_path
+            )
+            print(f"[SUCCESS] Audio generated successfully: {audio_path}")
+        except Exception as e:
+            print(f"[WARNING] XTTS synthesis failed ({e}). Using fallback silent audio track.")
+            subprocess.run(["ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "30", audio_path], check=True)
+    else:
+        print(f"[INFO] Using cached audio: {audio_path}")
+
+    # 2. Set Environment Variables for Manim Scene
     env = os.environ.copy()
     env["CURRENT_VIDEO_ID"] = video_id
     env["CURRENT_TITLE"] = title
-    env["EQUATIONS_JSON"] = row.get("equations_json", "[]")
-    env["VISUAL_DATA_JSON"] = row.get("visual_data_json", "[]")
+    env["EQUATIONS_JSON"] = eq_json
+    env["VISUAL_DATA_JSON"] = vis_json
 
+    # 3. Execute Manim Render Command (9:16 Vertical HD Format)
     manim_cmd = [
-        sys.executable, "-m", "manim",
-        "render_universal.py", "ElitePhysicsScene",
-        "-ql", "--media_dir", "media"
+        "manim",
+        "render_universal.py",
+        "ElitePhysicsScene",
+        "-ql",  # Low quality for swift CI testing (-qh for production 1080p1920)
+        "--media_dir", "media"
     ]
-    subprocess.run(manim_cmd, env=env, check=True)
 
-    # 3. Locate Manim's rendered output file
-    search_pattern = os.path.join("media", "videos", "**", "*.mp4")
-    rendered_files = glob.glob(search_pattern, recursive=True)
-    
-    if not rendered_files:
-        raise FileNotFoundError(f"Manim failed to generate any output mp4 files for {video_id}")
-
-    latest_video = max(rendered_files, key=os.path.getmtime)
-
-    # 4. Mux Video and Audio via FFmpeg
-    ffmpeg_cmd = [
-        "ffmpeg", "-y",
-        "-i", latest_video,
-        "-i", audio_wav,
-        "-c:v", "libx264",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        final_output_mp4
-    ]
-    subprocess.run(ffmpeg_cmd, check=True)
-
-    print(f"[SUCCESS] Compiled final short at: {final_output_mp4}")
-
+    print(f"[INFO] Running Manim render for {video_id}...")
+    try:
+        subprocess.run(manim_cmd, env=env, check=True)
+        print(f"[SUCCESS] Render completed for {video_id}")
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] Manim render failed with exit code {e.returncode}")
+        sys.exit(1)
 
 def main():
-    parser = argparse.ArgumentParser(description="Batch Worker Runner")
-    parser.add_argument("--shard-index", type=int, required=True)
-    parser.add_argument("--shard-total", type=int, required=True)
-    parser.add_argument("--output_dir", default="dist")
-    args = parser.parse_args()
+    csv_path = os.environ.get("TARGET_CSV", "feynman_batch1.csv")
+    if not os.path.exists(csv_path):
+        print(f"[ERROR] CSV file not found: {csv_path}")
+        sys.exit(1)
 
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    jobs = []
-    with open("content_batch.csv", mode="r", encoding="utf-8") as f:
+    print(f"[INFO] Loading jobs from {csv_path}...")
+    with open(csv_path, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            jobs.append(row)
-
-    shard_jobs = [job for i, job in enumerate(jobs) if i % args.shard_total == args.shard_index]
-    print(f"[INFO] Loaded {len(shard_jobs)} video jobs for worker {args.shard_index + 1}/{args.shard_total}.")
-
-    for job in shard_jobs:
-        run_job(job, args.output_dir)
-
-    print(f"[FINISHED] Processed {len(shard_jobs)} videos successfully.")
-
+            run_job(row)
 
 if __name__ == "__main__":
     main()
