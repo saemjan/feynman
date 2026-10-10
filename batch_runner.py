@@ -1,18 +1,19 @@
-#!/usr/init/env python3
+#!/usr/bin/env python3
 """
 Parallel Shard Batch Runner.
-Distributes video rendering across worker shards and compiles output shorts.
+Automatically locates Manim video output, combines with voiceover audio via FFmpeg,
+and outputs final vertical shorts into the dist directory for artifact upload.
 """
 
 import argparse
 import csv
-import json
+import glob
 import os
 import subprocess
 import sys
 
 
-def run_job(row: dict, output_path: str):
+def run_job(row: dict, output_dir: str):
     video_id = row["video_id"]
     title = row["header_title"]
     script = row["audio_script"]
@@ -22,9 +23,11 @@ def run_job(row: dict, output_path: str):
     print(f"Header: {title}")
     print(f"========================================")
 
-    audio_wav = f"{output_path}_audio.wav"
+    os.makedirs(output_dir, exist_ok=True)
+    audio_wav = os.path.join(output_dir, f"{video_id}_audio.wav")
+    final_output_mp4 = os.path.join(output_dir, f"{video_id}.mp4")
     
-    # 1. Generate Voiceover
+    # 1. Generate Voiceover using your voice clone
     audio_cmd = [
         sys.executable, "generate_audio.py",
         "--video_id", video_id,
@@ -46,7 +49,31 @@ def run_job(row: dict, output_path: str):
         "-ql", "--media_dir", "media"
     ]
     subprocess.run(manim_cmd, env=env, check=True)
-    print(f"[SUCCESS] Completed job for {video_id}")
+
+    # 3. Locate Manim's raw rendered video output
+    search_pattern = os.path.join("media", "videos", "**", "*.mp4")
+    rendered_files = glob.glob(search_pattern, recursive=True)
+    
+    if not rendered_files:
+        raise FileNotFoundError(f"Manim failed to generate any output mp4 files for {video_id}")
+
+    # Get the most recently modified mp4 file from Manim output
+    latest_video = max(rendered_files, key=os.path.getmtime)
+
+    # 4. Combine Manim silent video with generated voice audio using FFmpeg
+    ffmpeg_cmd = [
+        "ffmpeg", "-y",
+        "-i", latest_video,
+        "-i", audio_wav,
+        "-c:v", "libx264",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-shortest",
+        final_output_mp4
+    ]
+    subprocess.run(ffmpeg_cmd, check=True)
+
+    print(f"[SUCCESS] Compiled final short at: {final_output_mp4}")
 
 
 def main():
@@ -68,8 +95,7 @@ def main():
     print(f"[INFO] Loaded {len(shard_jobs)} video jobs for worker {args.shard_index + 1}/{args.shard_total}.")
 
     for job in shard_jobs:
-        out_base = os.path.join(args.output_dir, job["video_id"])
-        run_job(job, out_base)
+        run_job(job, args.output_dir)
 
     print(f"[FINISHED] Processed {len(shard_jobs)} videos successfully.")
 
