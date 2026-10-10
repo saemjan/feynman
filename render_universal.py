@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-render_universal.py — Cinematic 9:16 Manim renderer with beat-driven narrative.
+render_universal.py — Cinematic 9:16 Manim renderer.
 
-Beat semantics:
-  hook       — type a question onto the top of the frame
-  analogy    — dim the equation card (if revealed) and pulse the focus visual
-  experiment — draw attention to a visual (Indicate, not re-Create)
-  law        — reveal the equation card, write equations term-by-term
-  emphasis   — SYMBOL ↔ VISUAL BINDING: pulse equation term AND visual together
-  punchline  — circumscribe the answer
+★ KEY FIX: Equation card content is NOT pre-hidden. Write() animates from
+invisible strokes → visible. This is what makes equations actually appear.
+
+Beat system is optional. If beats_json is empty, the legacy sequential
+reveal fires — header → visuals → equations → answers. This is the flow
+that produced the "excellent" version you liked.
 """
 
 from __future__ import annotations
@@ -56,17 +55,6 @@ ZONE_QUESTION  =  4.30
 ZONE_VISUAL    =  0.30
 ZONE_EQUATIONS = -5.00
 ZONE_ANSWER    = -7.00
-
-# Beat type constants
-BEAT_HOOK       = "hook"
-BEAT_ANALOGY    = "analogy"
-BEAT_EXPERIMENT = "experiment"
-BEAT_LAW        = "law"
-BEAT_EMPHASIS   = "emphasis"
-BEAT_PUNCHLINE  = "punchline"
-
-_KNOWN_BEATS = {BEAT_HOOK, BEAT_ANALOGY, BEAT_EXPERIMENT,
-                BEAT_LAW, BEAT_EMPHASIS, BEAT_PUNCHLINE}
 
 
 def _log(m): print(f"[render] {m}", file=sys.stderr, flush=True)
@@ -141,11 +129,24 @@ def has_updater(m):
 
 
 def live_wait(scene, duration, mobs=None, breathe_scale=0.014):
+    """Wait, but keep mobs breathing. Skip hidden (opacity=0) and updater-owned mobs."""
     if duration <= 0.05:
         return
     candidates = mobs if mobs is not None else \
                  [m for m in scene.mobjects if isinstance(m, VMobject)]
-    targets = [m for m in candidates if isinstance(m, VMobject) and not has_updater(m)][:6]
+    targets = []
+    for m in candidates:
+        if not isinstance(m, VMobject):
+            continue
+        if has_updater(m):
+            continue
+        try:
+            if m.get_opacity() < 0.1:
+                continue
+        except Exception:
+            pass
+        targets.append(m)
+    targets = targets[:6]
     if not targets:
         scene.wait(duration)
         return
@@ -207,7 +208,7 @@ class UniversalPhysicsScene(MovingCameraScene):
         self.sk = scene_kwargs or {}
         self.eq_mobs: list[Mobject] = []
         self.visuals_by_id: dict = {}
-        self._law_fired = False   # ★ tracks whether equation card has been revealed
+        self._law_fired = False
 
     def construct(self):
         sk = self.sk
@@ -217,25 +218,37 @@ class UniversalPhysicsScene(MovingCameraScene):
         beats    = safe_json_loads(sk.get("beats_json", "[]"))
         bindings = safe_json_loads(sk.get("bindings_json", "[]"))
 
+        # ---- 1. Header ----
         self._build_header(sk.get("header_title", ""), sk.get("tagline", ""))
 
+        # ---- 2. Question (PYQ only) ----
         if sk.get("question_text"):
             self._build_question(sk["question_text"])
 
+        # ---- 3. Visuals — always revealed ----
         visual_group = self._build_visuals(
             safe_json_loads(sk.get("visual_data_json", "[]"))
         )
         if len(visual_group) > 0:
             self._reveal_visuals(visual_group)
 
+        # ---- 4. Equation card ----
         eq_card = self._build_equation_card(
             safe_json_loads(sk.get("equations_json", "[]"))
         )
 
-        # Beat-driven OR legacy reveal
-        if beats:
+        # ---- 5. Beat path OR legacy path ----
+        # Legacy path is what produced the version you liked. We use it by default
+        # unless the CSV explicitly provides a well-formed beat list.
+        use_beats = bool(beats) and any(
+            isinstance(b, dict) and "type" in b for b in beats
+        )
+
+        if use_beats:
+            _log(f"Using beat timeline ({len(beats)} beats)")
             self._run_beat_timeline(beats, bindings, eq_card, visual_group, duration)
         else:
+            _log("Using legacy sequential reveal")
             if len(eq_card) > 0:
                 self._reveal_equation_card(eq_card)
             focus = [m for m in (visual_group, eq_card) if len(m) > 0]
@@ -243,7 +256,7 @@ class UniversalPhysicsScene(MovingCameraScene):
             if remaining > 0.4:
                 live_wait(self, remaining, focus[0] if focus else None)
 
-        # PYQ options + answer
+        # ---- 6. Answer box (PYQ) ----
         options = [o for o in (sk.get("options") or []) if o and o.strip()]
         correct = sk.get("correct_answer", "")
         if options or correct:
@@ -253,15 +266,43 @@ class UniversalPhysicsScene(MovingCameraScene):
                 self.play(Circumscribe(ans_box, color=COLOR["accent"],
                                        buff=0.15, run_time=0.8))
 
+    # ============================================================ legacy
+    def _reveal_equation_card(self, card):
+        """
+        ★ THE FIX: We do NOT call content.set_opacity(0). Write() animates
+        each equation from invisible strokes → visible by itself.
+        """
+        bg, content = card[0], card[1]
+
+        # Background wipes in
+        bg.save_state()
+        bg.set_opacity(0).scale(0.94)
+        self.play(Restore(bg, rate_func=RF_SNAP), run_time=0.6)
+
+        # Camera pushes in on equations
+        self.director.zoom(1.14, run_time=0.7,
+                           center=np.array([0, ZONE_EQUATIONS, 0]))
+
+        # Each equation writes on (Write creates its own reveal)
+        if isinstance(content, VGroup) and len(content) > 0:
+            for i, eq in enumerate(content):
+                self.play(Write(eq, rate_func=smooth),
+                          run_time=0.9 if i == 0 else 0.7)
+                self.wait(0.15)
+
+        # Settle
+        live_wait(self, 0.6, [content])
+        self.director.reset(run_time=0.7)
+        self._law_fired = True
+
     # ============================================================ beats
     def _run_beat_timeline(self, beats, bindings, eq_card, visual_group, duration):
-        # ★ FIXED: hide both bg and content separately so law can restore precisely
+        # Do NOT hide the card. Leave it visible — beats operate on top of it.
         if len(eq_card) > 0:
-            eq_card[0].set_opacity(0)   # bg
-            eq_card[1].set_opacity(0)   # content
+            # Reveal bg now but leave equations invisible (Write adds them per beat)
+            eq_card[0].set_opacity(0)
             self.add(eq_card)
 
-        # Build binding map
         bindings_map: dict[str, tuple[int, int]] = {}
         for b in bindings:
             if not isinstance(b, dict):
@@ -289,22 +330,19 @@ class UniversalPhysicsScene(MovingCameraScene):
             kind  = str(beat.get("type", "")).lower()
             focus = str(beat.get("focus", "")).strip()
 
-            if kind not in _KNOWN_BEATS:
-                _log(f"unknown beat type: '{kind}' (skipping)")
-                continue
-
             try:
-                if kind == BEAT_HOOK:
+                if kind == "hook":
                     self._beat_hook(beat)
-                elif kind == BEAT_ANALOGY:
+                elif kind == "analogy":
                     self._beat_analogy(focus, eq_card)
-                elif kind == BEAT_EXPERIMENT:
+                elif kind == "experiment":
                     self._beat_experiment(focus)
-                elif kind == BEAT_LAW:
+                elif kind == "law":
                     self._beat_law(eq_card)
-                elif kind == BEAT_EMPHASIS:
-                    self._beat_emphasis(focus, bindings_map, self.eq_mobs, eq_contents)
-                elif kind == BEAT_PUNCHLINE:
+                elif kind == "emphasis":
+                    self._beat_emphasis(focus, bindings_map,
+                                        self.eq_mobs, eq_contents)
+                elif kind == "punchline":
                     self._beat_punchline(eq_card)
             except Exception as e:
                 _log(f"beat '{kind}' failed: {type(e).__name__}: {e}")
@@ -326,20 +364,15 @@ class UniversalPhysicsScene(MovingCameraScene):
         self.play(Write(hook), run_time=0.9)
 
     def _beat_analogy(self, focus_id: str, eq_card: VGroup):
-        """
-        ★ FIXED: only dim the equation card if `law` has already fired.
-        Otherwise the card is at opacity 0 and dimming reveals a ghost.
-        """
         if len(eq_card) > 0 and self._law_fired:
             self.play(eq_card.animate.set_opacity(0.30), run_time=0.4)
         mob = self.visuals_by_id.get(focus_id)
         if mob is not None:
             self.play(
-                mob.animate(rate_func=there_and_back, run_time=0.7).scale(1.08)
+                mob.animate(rate_func=there_and_back, run_time=0.7).scale(1.10)
             )
 
     def _beat_experiment(self, focus_id: str):
-        """★ FIXED: was Create() on an already-visible mob → re-draw flicker."""
         mob = self.visuals_by_id.get(focus_id)
         if mob is not None:
             self.play(
@@ -348,42 +381,33 @@ class UniversalPhysicsScene(MovingCameraScene):
             )
 
     def _beat_law(self, eq_card: VGroup):
+        """★ FIXED: content is added via Write — never pre-hidden."""
         if len(eq_card) == 0:
             return
         if self._law_fired:
-            # Already revealed — just restore visibility if analogy dimmed it
             self.play(eq_card.animate.set_opacity(1.0), run_time=0.3)
             return
 
         bg, content = eq_card[0], eq_card[1]
+
+        # Reveal bg
         self.play(bg.animate.set_opacity(0.96), run_time=0.5)
+
+        # Camera push
         self.director.zoom(1.14, run_time=0.7,
                            center=np.array([0, ZONE_EQUATIONS, 0]))
 
+        # Write each equation — Write adds them to the scene as part of animation
         if isinstance(content, VGroup):
             for eq in content:
-                # Reveal each equation via Write; keep mob visible but stroke blank
-                eq.set_opacity(1)
-                try:
-                    eq.set_stroke(opacity=0)
-                except Exception:
-                    pass
-            for eq in content:
                 self.play(Write(eq, rate_func=smooth), run_time=0.7)
-                # Subtle emphasis pulse instead of frozen wait
-                self.play(
-                    eq.animate(rate_func=there_and_back, run_time=0.16).scale(1.008)
-                )
+                self.wait(0.1)
 
         self.director.reset(run_time=0.6)
         self._law_fired = True
 
     def _beat_emphasis(self, focus_id: str, bindings_map: dict,
                        eq_mobs: list, eq_contents):
-        """
-        SYMBOL ↔ VISUAL BINDING — the 3b1b signature move.
-        ★ FIXED: skip equation-term pulse if `law` hasn't fired (invisible term).
-        """
         mob = self.visuals_by_id.get(focus_id)
         binding = bindings_map.get(focus_id)
 
@@ -420,10 +444,12 @@ class UniversalPhysicsScene(MovingCameraScene):
                 parts.append(Text(title, weight=BOLD, font_size=30, color=WHITE))
             except Exception:
                 parts.append(Text(title, font_size=30, color=WHITE))
-        rule = Line(LEFT, RIGHT, color=COLOR["accent"], stroke_width=2).set_width(3.2)
+        rule = Line(LEFT, RIGHT, color=COLOR["accent"],
+                    stroke_width=2).set_width(3.2)
         if tagline:
             parts.append(rule)
-            parts.append(Text(tagline, font_size=18, color=COLOR["muted"], slant=ITALIC))
+            parts.append(Text(tagline, font_size=18,
+                              color=COLOR["muted"], slant=ITALIC))
         if not parts:
             return
         header = VGroup(*parts).arrange(DOWN, buff=0.14)
@@ -467,14 +493,16 @@ class UniversalPhysicsScene(MovingCameraScene):
                         lag_ratio=0.20),
             run_time=1.4,
         )
-        self.director.zoom(1.10, run_time=0.9, center=np.array([0, ZONE_VISUAL, 0]))
+        self.director.zoom(1.10, run_time=0.9,
+                           center=np.array([0, ZONE_VISUAL, 0]))
         self.director.reset(run_time=0.7)
 
     # ============================================================ equations
     def _build_equation_card(self, equations):
         if not equations:
             return VGroup()
-        eq_mobs = [safe_latex(eq, font_size=28, color=WHITE) for eq in equations if eq]
+        eq_mobs = [safe_latex(eq, font_size=28, color=WHITE)
+                   for eq in equations if eq]
         if not eq_mobs:
             return VGroup()
         self.eq_mobs = eq_mobs
@@ -482,23 +510,6 @@ class UniversalPhysicsScene(MovingCameraScene):
         if eq_group.width > 7.0:
             eq_group.scale_to_fit_width(7.0)
         return make_card(eq_group, width=7.8).move_to([0, ZONE_EQUATIONS, 0])
-
-    def _reveal_equation_card(self, card):
-        bg, content = card[0], card[1]
-        bg.save_state()
-        bg.set_opacity(0).scale(0.94)
-        content.save_state()
-        content.set_opacity(0)
-        self.play(Restore(bg, rate_func=RF_SNAP), run_time=0.6)
-        self.director.zoom(1.14, run_time=0.7, center=np.array([0, ZONE_EQUATIONS, 0]))
-        if isinstance(content, VGroup):
-            for i, eq in enumerate(content):
-                self.play(Write(eq, rate_func=smooth),
-                          run_time=0.9 if i == 0 else 0.7)
-                self.wait(0.15)
-        live_wait(self, 0.6, [content])
-        self.director.reset(run_time=0.7)
-        self._law_fired = True
 
     # ============================================================ answers
     def _build_answers(self, options, correct):
@@ -568,7 +579,8 @@ class UniversalPhysicsScene(MovingCameraScene):
             if itype in ("vector", "arrow", "force"):
                 s = to_3d(item.get("start", [0, 0, 0]))
                 e = to_3d(item.get("end", [1, 0, 0]))
-                arr = Arrow(start=s, end=e, buff=0, color=color, stroke_width=4)
+                arr = Arrow(start=s, end=e, buff=0,
+                            color=color, stroke_width=4)
                 if label:
                     return VGroup(arr, safe_latex(label, 22, color)
                                   .next_to(arr.get_end(), RIGHT, buff=0.1))
