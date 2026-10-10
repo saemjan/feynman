@@ -1,6 +1,17 @@
 #!/usr/bin/env python3
 """
 soundscape.py — Voice mastering chain tuned to PRESERVE cloned vocal identity.
+
+Order:
+  1. Read input (XTTS gives 24 kHz; Edge-TTS gave 44.1 kHz)
+  2. Resample to 44.1 kHz FIRST  ← fixes the Nyquist crash
+  3. DC-offset removal (prevents low-freq thump on some mics)
+  4. Gentle high-pass 70 Hz
+  5. Very light soft-compress (peak smoothing only)
+  6. Gentle low-pass 14 kHz (keeps full vocal timbre)
+  7. LUFS-normalize to -14
+  8. Mix ambient pad
+  9. Peak-limit to -1 dBFS, write 16-bit PCM
 """
 
 from __future__ import annotations
@@ -13,6 +24,12 @@ PAD_FREQ_HZ  = 110.0
 PAD_GAIN     = 0.018
 PEAK_TARGET  = 0.891        # -1 dBFS
 LUFS_TARGET  = -14.0
+
+
+# ============================================================ filters
+def _dc_remove(sig: np.ndarray) -> np.ndarray:
+    """Remove DC offset — prevents low-frequency thump after high-pass."""
+    return (sig - float(np.mean(sig))).astype(np.float32)
 
 
 def _highpass(sig: np.ndarray, sr: int, cutoff: float = 70.0) -> np.ndarray:
@@ -29,7 +46,8 @@ def _lowpass(sig: np.ndarray, sr: int, cutoff: float = 14000.0) -> np.ndarray:
     return sosfilt(sos, sig).astype(np.float32)
 
 
-def _soft_compress(sig: np.ndarray, threshold: float = 0.40, ratio: float = 2.0) -> np.ndarray:
+def _soft_compress(sig: np.ndarray, threshold: float = 0.40,
+                   ratio: float = 2.0) -> np.ndarray:
     out = sig.copy()
     mask = np.abs(sig) > threshold
     over = np.abs(sig[mask]) - threshold
@@ -37,7 +55,8 @@ def _soft_compress(sig: np.ndarray, threshold: float = 0.40, ratio: float = 2.0)
     return out
 
 
-def _loudness_normalize(sig: np.ndarray, target_lufs: float = LUFS_TARGET) -> np.ndarray:
+def _loudness_normalize(sig: np.ndarray,
+                        target_lufs: float = LUFS_TARGET) -> np.ndarray:
     rms = float(np.sqrt(np.mean(sig ** 2) + 1e-12))
     if rms < 1e-6:
         return sig
@@ -61,7 +80,9 @@ def _resample(sig: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
     return resample_poly(sig, up, down).astype(np.float32)
 
 
-def generate_ambient_pad(duration_sec: float, sample_rate: int = CANONICAL_SR) -> np.ndarray:
+# ============================================================ pad
+def generate_ambient_pad(duration_sec: float,
+                         sample_rate: int = CANONICAL_SR) -> np.ndarray:
     n = max(1, int(sample_rate * duration_sec))
     t = np.linspace(0, duration_sec, n, endpoint=False)
     drone = (
@@ -78,6 +99,7 @@ def generate_ambient_pad(duration_sec: float, sample_rate: int = CANONICAL_SR) -
     return drone
 
 
+# ============================================================ helpers
 def _to_mono_float(data: np.ndarray, dtype: np.dtype) -> np.ndarray:
     if dtype == np.int16:
         out = data.astype(np.float32) / 32768.0
@@ -90,15 +112,19 @@ def _to_mono_float(data: np.ndarray, dtype: np.dtype) -> np.ndarray:
     return out
 
 
+# ============================================================ main
 def master_voice(input_wav: str, output_wav: str) -> None:
     sr, raw = wavfile.read(input_wav)
     voice = _to_mono_float(raw, raw.dtype)
     if voice.size == 0:
         raise ValueError(f"'{input_wav}' has no samples")
 
+    # ★ Resample FIRST (Nyquist fix)
     voice = _resample(voice, sr, CANONICAL_SR)
     sr = CANONICAL_SR
 
+    # Gentle, identity-preserving chain
+    voice = _dc_remove(voice)
     voice = _highpass(voice, sr, 70.0)
     voice = _soft_compress(voice, 0.40, 2.0)
     voice = _lowpass(voice, sr, 14000.0)
