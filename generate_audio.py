@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Neural Voice Synthesis Engine with Explicit XTTS-v2 Voice Cloning Enforcement.
-Uses saem_voice_sample.wav for authentic speaker cloning.
-Uses GitHub Actions Workflow Commands for build log annotations.
+Neural Voice Synthesis Engine with Forced Coqui XTTS-v2 Voice Cloning.
+Programmatically bypasses non-interactive terms prompts to guarantee saem_voice_sample.wav is used.
 """
 
 import argparse
@@ -11,8 +10,15 @@ import os
 import subprocess
 import sys
 
-# Pre-set Coqui TOS agreement to prevent non-interactive console hangs in CI/CD
+# --- FORCE COQUI TERMS OF SERVICE AGREEMENT ---
+# This prevents non-interactive CI/CD runners from hanging or failing with EOF errors,
+# ensuring Coqui XTTS-v2 successfully loads instead of falling back to generic TTS.
 os.environ["COQUI_TOS_AGREED"] = "1"
+tos_dir = os.path.expanduser("~/.local/share/tts")
+os.makedirs(tos_dir, exist_ok=True)
+with open(os.path.join(tos_dir, ".tos_agreed"), "w") as f:
+    f.write("y\n")
+------------------------------------------------
 
 from soundscape import process_and_normalize_wav
 
@@ -32,9 +38,7 @@ def synthesize_coqui(text: str, speaker_wav: str, output_wav: str, seed: int) ->
         torch.manual_seed(seed)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        # GitHub Actions Workflow Annotation
-        print(f"::notice file=generate_audio.py,title=XTTS-v2 Active::Cloning authentic voice from '{speaker_wav}' on {device.upper()}.")
-        
+        print(f"[INFO] Initializing XTTS-v2 on {device.upper()} using your male voice sample: {speaker_wav}")
         tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 
         tts.tts_to_file(
@@ -48,39 +52,10 @@ def synthesize_coqui(text: str, speaker_wav: str, output_wav: str, seed: int) ->
             top_p=0.85,
             enable_text_splitting=True
         )
+        print(f"[SUCCESS] Successfully cloned your voice into: {output_wav}")
         return True
     except Exception as e:
-        print(f"::warning file=generate_audio.py,title=XTTS-v2 Failed::Coqui voice cloning error ({e}). Falling back to gTTS.")
-        return False
-
-
-def synthesize_gtts(text: str, output_wav: str) -> bool:
-    """Tier 2: Backup HTTP Fallback using Google Text-to-Speech (gTTS)."""
-    temp_mp3 = output_wav + ".gtts.mp3"
-    try:
-        from gtts import gTTS
-        
-        print("[INFO] Generating fallback audio via gTTS API...")
-        tts = gTTS(text=text, lang='en', slow=False)
-        tts.save(temp_mp3)
-
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", temp_mp3,
-            "-acodec", "pcm_s16le",
-            "-ar", "44100",
-            "-ac", "1",
-            output_wav
-        ]
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        if os.path.exists(temp_mp3):
-            os.remove(temp_mp3)
-        return True
-    except Exception as e:
-        print(f"::error file=generate_audio.py,title=gTTS Failed::gTTS synthesis failed: {e}")
-        if os.path.exists(temp_mp3):
-            os.remove(temp_mp3)
+        print(f"[ERROR] Coqui XTTS-v2 failed unexpectedly: {e}", file=sys.stderr)
         return False
 
 
@@ -95,19 +70,15 @@ def main():
     seed = get_deterministic_seed(args.video_id)
     raw_wav = args.output + ".raw.wav"
 
-    success = False
-    # Validate reference audio file presence
-    if os.path.exists(args.speaker_wav):
-        success = synthesize_coqui(args.script, args.speaker_wav, raw_wav, seed)
-    else:
-        print(f"::warning file=generate_audio.py,title=Missing Voice Sample::'{args.speaker_wav}' not found in repo root.")
+    if not os.path.exists(args.speaker_wav):
+        print(f"[FATAL] Reference voice sample '{args.speaker_wav}' not found in repo root!", file=sys.stderr)
+        sys.exit(1)
 
-    # Trigger backup gTTS if XTTS-v2 fails
-    if not success:
-        success = synthesize_gtts(args.script, raw_wav)
+    # Enforce Coqui XTTS-v2 (No fallback to gTTS so your voice is guaranteed)
+    success = synthesize_coqui(args.script, args.speaker_wav, raw_wav, seed)
 
     if not success or not os.path.exists(raw_wav):
-        print(f"::error file=generate_audio.py,title=Synthesis Fatal::Failed to generate audio for {args.video_id}")
+        print(f"[FATAL] Voice cloning failed for {args.video_id}", file=sys.stderr)
         sys.exit(1)
 
     process_and_normalize_wav(raw_wav, args.output)
@@ -115,7 +86,7 @@ def main():
     if os.path.exists(raw_wav):
         os.remove(raw_wav)
 
-    print(f"[SUCCESS] Audio generated and normalized using voice clone: {args.output}")
+    print(f"[SUCCESS] Final branded audio generated using your voice: {args.output}")
 
 
 if __name__ == "__main__":
