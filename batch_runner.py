@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/init/env python3
 """
 Parallel Shard Batch Runner.
 Distributes video rendering across worker shards and compiles output shorts.
