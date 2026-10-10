@@ -2,7 +2,7 @@
 """
 Strict Neural Voice Synthesis Engine.
 Enforces absolute path resolution and pre-authorizes Coqui XTTS-v2 TOS agreements 
-to guarantee authentic male voice cloning from saem_voice_sample.wav without fallbacks.
+to guarantee authentic male voice cloning from saem_voice_sample.wav.
 """
 
 import argparse
@@ -11,7 +11,7 @@ import os
 import subprocess
 import sys
 
-# Pre-authorize Coqui TOS
+# Pre-authorize Coqui TOS agreement to prevent interactive console hangs
 os.environ["COQUI_TOS_AGREED"] = "1"
 tos_dir = os.path.expanduser("~/.local/share/tts")
 os.makedirs(tos_dir, exist_ok=True)
@@ -41,6 +41,8 @@ def main():
         print(f"::error file=generate_audio.py,title=Missing Voice Sample::'{args.speaker_wav}' not found at {abs_speaker_wav}!")
         sys.exit(1)
 
+    print(f"::notice file=generate_audio.py,title=Voice Cloning Active::Cloning authentic male voice from: {abs_speaker_wav}")
+
     try:
         import torch
         from TTS.api import TTS
@@ -48,7 +50,7 @@ def main():
         torch.manual_seed(seed)
         device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        print(f"[INFO] Initializing XTTS-v2 on {device.upper()} using your voice sample...")
+        print(f"[INFO] Initializing XTTS-v2 on {device.upper()}...")
         tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 
         tts.tts_to_file(
