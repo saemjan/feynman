@@ -31,11 +31,11 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Verify reference voice sample exists
+      - name: Verify reference voice sample
         run: |
           set -euo pipefail
           test -f saem_voice_sample.wav || {
-            echo "::error file=saem_voice_sample.wav::Reference voice sample is missing. XTTS is the ONLY synthesizer."
+            echo "::error file=saem_voice_sample.wav::Reference voice missing"
             exit 1
           }
           ls -lh saem_voice_sample.wav
@@ -50,7 +50,7 @@ jobs:
           {
             echo "### Pre-flight Passed :rocket:"
             echo ""
-            echo "Validated **$COUNT** physics short specifications."
+            echo "Validated **$COUNT** specs."
           } >> "$GITHUB_STEP_SUMMARY"
 
   render:
@@ -96,7 +96,7 @@ jobs:
             ~/.cache/huggingface
           key: xtts-v2-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
-      - name: Compile-check all Python files
+      - name: Compile-check
         run: |
           set -euo pipefail
           python -m py_compile \
@@ -156,8 +156,8 @@ jobs:
               echo "| \`$f\` | **${MB} MB** |" >> "$GITHUB_STEP_SUMMARY"
             done
           else
-            echo "_No videos were produced in this run._" >> "$GITHUB_STEP_SUMMARY"
-            echo "::error title=Empty Bundle::No MP4 files were produced."
+            echo "_No videos produced._" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Empty Bundle::No MP4 files produced."
           fi
 
       - name: Upload final bundle
