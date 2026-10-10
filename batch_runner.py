@@ -1,17 +1,22 @@
-#!/usr/init/env python3
+#!/usr/bin/env python3
 """
 Parallel Shard Batch Runner.
-Distributes video rendering across worker shards and stitches final vertical MP4s.
+Distributes video rendering across worker shards and compiles output shorts.
 """
 
 import argparse
 import csv
+import json
 import os
 import subprocess
 import sys
 
 
-def run_job(video_id: str, title: str, script: str, output_path: str):
+def run_job(row: dict, output_path: str):
+    video_id = row["video_id"]
+    title = row["header_title"]
+    script = row["audio_script"]
+
     print(f"\n========================================")
     print(f"Processing: {video_id} ({len(script.split())} words)")
     print(f"Header: {title}")
@@ -19,7 +24,7 @@ def run_job(video_id: str, title: str, script: str, output_path: str):
 
     audio_wav = f"{output_path}_audio.wav"
     
-    # 1. Generate Voiceover using your voice clone
+    # 1. Generate Voiceover
     audio_cmd = [
         sys.executable, "generate_audio.py",
         "--video_id", video_id,
@@ -29,20 +34,18 @@ def run_job(video_id: str, title: str, script: str, output_path: str):
     subprocess.run(audio_cmd, check=True)
 
     # 2. Render Manim Animation
-    video_temp = f"{output_path}_temp.mp4"
-    manim_cmd = [
-        sys.executable, "-m", "manim",
-        "render_universal.py", "UniversalPhysicsScene",
-        "-ql", "--media_dir", "media"
-    ]
-    
-    # Pass video_id via environment
     env = os.environ.copy()
     env["CURRENT_VIDEO_ID"] = video_id
-    subprocess.run(manim_cmd, env=env, check=True)
+    env["CURRENT_TITLE"] = title
+    env["EQUATIONS_JSON"] = row.get("equations_json", "[]")
+    env["VISUAL_DATA_JSON"] = row.get("visual_data_json", "[]")
 
-    # Locate generated manim mp4 and combine with audio via ffmpeg
-    # (Manim outputs to media/videos/render_universal/480p15/UniversalPhysicsScene.mp4 roughly)
+    manim_cmd = [
+        sys.executable, "-m", "manim",
+        "render_universal.py", "ElitePhysicsScene",
+        "-ql", "--media_dir", "media"
+    ]
+    subprocess.run(manim_cmd, env=env, check=True)
     print(f"[SUCCESS] Completed job for {video_id}")
 
 
@@ -61,13 +64,12 @@ def main():
         for row in reader:
             jobs.append(row)
 
-    # Shard slicing
     shard_jobs = [job for i, job in enumerate(jobs) if i % args.shard_total == args.shard_index]
     print(f"[INFO] Loaded {len(shard_jobs)} video jobs for worker {args.shard_index + 1}/{args.shard_total}.")
 
     for job in shard_jobs:
         out_base = os.path.join(args.output_dir, job["video_id"])
-        run_job(job["video_id"], job["title"], job["script"], out_base)
+        run_job(job, out_base)
 
     print(f"[FINISHED] Processed {len(shard_jobs)} videos successfully.")
 
