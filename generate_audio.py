@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """
 Strict Neural Voice Synthesis Engine.
-Enforces absolute path resolution and pre-authorizes Coqui XTTS-v2 TOS agreements 
-to guarantee authentic male voice cloning from saem_voice_sample.wav.
+Pre-authorizes Coqui TOS and clones the authentic voice from saem_voice_sample.wav.
 """
 
 import argparse
 import hashlib
 import os
-import subprocess
 import sys
 
-# Pre-authorize Coqui TOS agreement to prevent interactive console hangs
+# Pre-authorize Coqui TOS agreement to prevent interactive hangs in CI/CD
 os.environ["COQUI_TOS_AGREED"] = "1"
 tos_dir = os.path.expanduser("~/.local/share/tts")
 os.makedirs(tos_dir, exist_ok=True)
@@ -40,8 +38,6 @@ def main():
     if not os.path.exists(abs_speaker_wav):
         print(f"::error file=generate_audio.py,title=Missing Voice Sample::'{args.speaker_wav}' not found at {abs_speaker_wav}!")
         sys.exit(1)
-
-    print(f"::notice file=generate_audio.py,title=Voice Cloning Active::Cloning authentic male voice from: {abs_speaker_wav}")
 
     try:
         import torch
@@ -76,7 +72,7 @@ def main():
     if os.path.exists(raw_wav):
         os.remove(raw_wav)
 
-    print(f"[SUCCESS] Audio generated with your voice clone: {args.output}")
+    print(f"[SUCCESS] Audio generated successfully: {args.output}")
 
 
 if __name__ == "__main__":
